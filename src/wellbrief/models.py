@@ -88,7 +88,7 @@ class SearchHit:
     doc_id: str
     score: float
     document: Document
-    snippet: str = ""
+    snippet: str = ""       # the evidence quote for this hit (see `quotes.evidence_quote`)
     components: dict[str, float] = field(default_factory=dict)
 
 

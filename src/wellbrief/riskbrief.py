@@ -21,21 +21,15 @@ from .config import DEFAULT_SPREAD_RATE_USD_PER_DAY, NPT_CODES, hours_to_usd
 from .llm import Narrator, OfflineNarrator
 from .models import Citation, Risk, RiskBrief
 from .parse import parse_eowr, parse_incident
+from .quotes import evidence_quote, verbatim_quote
 from .search import mentions_code
 from .store import Store
+from .text import tokenize
 
 
-def _quote_line(text: str, needle: str, width: int = 260) -> str:
-    """Find the line a fact came from so the citation points somewhere real."""
-    key = " ".join(needle.split()[:6]).lower()
-    for line in text.splitlines():
-        if key and key in " ".join(line.split()).lower():
-            return " ".join(line.split())[:width]
-    for line in text.splitlines():
-        stripped = " ".join(line.split())
-        if len(stripped) > 40:
-            return stripped[:width]
-    return needle[:width]
+def _pattern_terms(pattern: Pattern) -> list[str]:
+    """The terms a quote for a pattern is scored on: its code, hole section and formation."""
+    return tokenize(f"{pattern.code} {pattern.hole_section} {pattern.formation}")
 
 
 def _relevance(sentence: str, pattern: Pattern) -> int:
@@ -58,8 +52,8 @@ def mine_mitigations(store: Store, pattern: Pattern, limit: int = 4) -> list[tup
     """Pull the written fix out of the wells that avoided the problem.
 
     Preference order: end of well reports from clean wells, then corrective
-    actions on incident reports for the same failure. Text is returned
-    verbatim so it can be cited.
+    actions on incident reports for the same failure. Each sentence is
+    returned as the raw span of its report, so it can be cited verbatim.
     """
     candidates: list[tuple[int, str, str]] = []
 
@@ -70,8 +64,9 @@ def mine_mitigations(store: Store, pattern: Pattern, limit: int = 4) -> list[tup
         parsed = parse_eowr(doc.text)
         for sentence in list(parsed.get("lessons", [])) + list(parsed.get("recommendations", [])):
             score = _relevance(sentence, pattern)
-            if score >= 3:
-                candidates.append((score, sentence, doc.doc_id))
+            quote = verbatim_quote(doc.text, sentence) if score >= 3 else None
+            if quote:
+                candidates.append((score, quote, doc.doc_id))
 
     if len(candidates) < limit:
         for doc in store.documents(doc_type="incident", field_name=pattern.field_name):
@@ -80,8 +75,9 @@ def mine_mitigations(store: Store, pattern: Pattern, limit: int = 4) -> list[tup
                 continue
             for action in parsed.get("corrective_actions", []):
                 score = _relevance(action, pattern)
-                if score >= 1:
-                    candidates.append((score, action, doc.doc_id))
+                quote = verbatim_quote(doc.text, action) if score >= 1 else None
+                if quote:
+                    candidates.append((score, quote, doc.doc_id))
 
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
@@ -107,13 +103,14 @@ def _citations_for(store: Store, pattern: Pattern, limit: int = 4) -> list[Citat
         key=lambda e: -e.hours,
     )
     cites: list[Citation] = []
+    terms = _pattern_terms(pattern)
     for e in events[:limit]:
         doc = store.get_document(e.doc_id)
         if not doc:
             continue
         cites.append(Citation(
             doc_id=doc.doc_id, doc_type=doc.doc_type, well=doc.well, date=doc.date,
-            quote=_quote_line(doc.text, e.description),
+            quote=evidence_quote(doc, terms, [e]),
         ))
     return cites
 
@@ -129,7 +126,7 @@ def build_risk(store: Store, pattern: Pattern, spread_rate: float) -> Risk:
         if doc:
             citations.append(Citation(
                 doc_id=doc.doc_id, doc_type=doc.doc_type, well=doc.well,
-                date=doc.date, quote=_quote_line(doc.text, text),
+                date=doc.date, quote=text,
             ))
 
     label = NPT_CODES.get(pattern.code, {}).get("label", pattern.code)

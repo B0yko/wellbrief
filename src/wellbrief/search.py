@@ -25,9 +25,10 @@ from typing import Any
 from .bm25 import BM25Index
 from .config import CODE_SYNONYMS, DEFAULT_TOP_K, DEPTH_BAND_M, RRF_K
 from .embed import Embedder
-from .models import Document, SearchHit
+from .models import Document, NptEvent, SearchHit
+from .quotes import evidence_quote
 from .store import Store, VectorIndex
-from .text import canonical_section, normalise, snippet, tokenize
+from .text import canonical_section, normalise, tokenize
 
 # ---------------------------------------------------------------------------
 # Vocabulary of the planner
@@ -646,6 +647,33 @@ def expanded_query(question: str, plan: QueryPlan) -> str:
     return " ".join([question, *plan.codes, *plan.wells, *plan.hole_sections])
 
 
+def quote_terms(question: str, plan: QueryPlan) -> list[str]:
+    """The terms an evidence quote is scored on: the expanded query, its formations, and
+    "npt" for a question about non-productive time in general (the reports write NPT)."""
+    terms = tokenize(" ".join([expanded_query(question, plan), *plan.formations]))
+    return [*terms, "npt"] if plan.npt else terms
+
+
+def quoted_entries(plan: QueryPlan, store: Store, doc_ids: Iterable[str]) -> dict[str, list[NptEvent]]:
+    """Per report, the ledger entries the plan's NPT filters select, in report order.
+
+    These are the entries a retrieved daily report's evidence quote is taken
+    from (see `quotes.evidence_quote`): the entries of the plan's codes, in its
+    section, formation and "at" depth band when it names them, or every entry
+    of the report for the general NPT cue. A plan that does not choose
+    documents through the ledger (one that names only fields, wells or
+    document types) selects no entry, so its hits are quoted by their best
+    operations or remarks line.
+    """
+    ids = sorted(set(doc_ids))
+    if not plan.uses_ledger or not ids:
+        return {}
+    out: dict[str, list[NptEvent]] = {}
+    for e in store.npt(**plan.ledger_filters(), doc_id=ids):
+        out.setdefault(e.doc_id, []).append(e)
+    return out
+
+
 class Searcher:
     def __init__(self, store: Store, bm25: BM25Index, vectors: VectorIndex, embedder: Embedder):
         self.store = store
@@ -681,17 +709,16 @@ class Searcher:
         if depth:
             rankings["depth"] = depth[:pool]
 
-        fused = rrf_fuse(rankings)
-        terms = tokenize(question)
+        fused = rrf_fuse(rankings)[:top_k]
+        terms = quote_terms(question, plan)
+        entries = quoted_entries(plan, self.store, (doc_id for doc_id, _, _ in fused))
         hits: list[SearchHit] = []
-        for doc_id, score, parts in fused[:top_k]:
+        for doc_id, score, parts in fused:
             doc = self.store.get_document(doc_id)
             if not doc:
                 continue
-            hits.append(SearchHit(
-                doc_id=doc_id, score=score, document=doc,
-                snippet=snippet(doc.text, terms), components=parts,
-            ))
+            quote = evidence_quote(doc, terms, entries.get(doc_id, ()), plan.depth_m)
+            hits.append(SearchHit(doc_id=doc_id, score=score, document=doc, snippet=quote, components=parts))
         return hits, plan
 
 

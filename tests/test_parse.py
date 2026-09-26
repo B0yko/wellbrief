@@ -10,7 +10,7 @@ from __future__ import annotations
 from wellbrief import parse
 from wellbrief.config import SYNTHETIC_FOOTER
 from wellbrief.models import Document
-from wellbrief.text import snippet
+from wellbrief.quotes import best_passage
 
 DDR_WITH_ENTRY_LOCATION = f"""DAILY DRILLING REPORT
 Operator: Quillfen Energy    Field: Orrindale    Well: ORD-150
@@ -233,8 +233,9 @@ def test_strip_footer_cuts_at_the_footer_line_only() -> None:
     assert parse.strip_footer("a\nno footer here\n") == "a\nno footer here\n"
 
 
-def test_snippet_never_quotes_the_footer() -> None:
-    quote = snippet(INCIDENT, ["operator", "fields", "wells", "rigs", "vendors", "fictional", "synthetic"])
+def test_a_quote_is_never_the_footer() -> None:
+    quote = best_passage(INCIDENT, "incident",
+                         ["operator", "fields", "wells", "rigs", "vendors", "fictional", "synthetic"])
     assert quote and "Synthetic demonstration document" not in quote
 
 

@@ -18,10 +18,21 @@ the other stages produced.
   verbatim quote: the retrieval hits, the cited figure sources, and the end of
   well reports the mitigations are quoted from. Any document id the narrator
   cites that is not in the pack is reported as a citation warning.
+- A quote is a span of the raw document text (see `quotes`). A daily report
+  that the question selects through the NPT ledger (by code, hole section,
+  formation, an "at" depth or the general NPT cue) is quoted by the
+  description of its best selected entry; any other document by its
+  best-matching content line (operations or remarks, lessons or
+  recommendations, sequence of events, root cause or corrective actions),
+  never by a header or label line when a content line exists, and never by
+  the footer. A cited figure source is quoted by the description of an entry
+  the figures count on it, and a retrieval hit that is also a cited figure
+  source shows that same quote, so each report is quoted once.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from .config import (
@@ -35,16 +46,11 @@ from .config import (
 from .llm import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
 from .models import Answer, Citation, Document, SearchHit
 from .parse import parse_eowr
-from .search import QueryPlan, Searcher, plan_query
+from .quotes import evidence_quote, verbatim_quote
+from .search import QueryPlan, Searcher, plan_query, quote_terms
 from .store import Store
-from .text import snippet, tokenize
 
 __all__ = ["FIGURE_SOURCE_LIMIT", "NO_MATCH", "abstention_text", "ask", "ledger_figures", "verify_citations"]
-
-
-def _is_verbatim(quote: str, text: str) -> bool:
-    """The same whitespace-insensitive test the grounding checks apply."""
-    return " ".join(quote.split()) in " ".join(text.split())
 
 
 def _pack_entry(doc: Document, quote: str, role: str, score: float = 0.0) -> dict[str, Any]:
@@ -60,12 +66,19 @@ def _pack_entry(doc: Document, quote: str, role: str, score: float = 0.0) -> dic
     }
 
 
-def _evidence_pack(hits: list[SearchHit], question: str) -> list[dict[str, Any]]:
-    terms = tokenize(question)
+def _evidence_pack(hits: list[SearchHit], terms: list[str]) -> list[dict[str, Any]]:
+    """Pack entries for the retrieval hits, each quoted by its snippet (the evidence quote)."""
     return [
-        _pack_entry(hit.document, hit.snippet or snippet(hit.document.text, terms), "retrieval", hit.score)
+        _pack_entry(hit.document, hit.snippet or evidence_quote(hit.document, terms), "retrieval", hit.score)
         for hit in hits
     ]
+
+
+def _quote_once(hits: list[SearchHit], figure_pack: list[dict[str, Any]]) -> list[SearchHit]:
+    """The hits, where a hit that is also a cited figure source takes that source's quote,
+    so every report in the answer is quoted once."""
+    quotes = {e["doc_id"]: e["quote"] for e in figure_pack}
+    return [replace(hit, snippet=quotes[hit.doc_id]) if hit.doc_id in quotes else hit for hit in hits]
 
 
 # ---------------------------------------------------------------------------
@@ -140,21 +153,24 @@ def ledger_figures(
     return figures, sources
 
 
-def _figure_source_pack(store: Store, plan: QueryPlan, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pack entries for the cited figure sources, each quoted by the description of its largest entry."""
+def _figure_source_pack(store: Store, plan: QueryPlan, sources: list[dict[str, Any]],
+                        terms: list[str]) -> list[dict[str, Any]]:
+    """Pack entries for the cited figure sources, each quoted by the description of one of
+    the entries the figures count on it.
+
+    For a plan that chooses its reports through the ledger these are the
+    entries `search.quoted_entries` selects, so the quote is the one a
+    retrieval hit on the same report shows; for a plan that names only
+    fields or wells they are all the report's entries.
+    """
     out: list[dict[str, Any]] = []
     filters = plan.ledger_filters()
     for source in sources:
         doc = store.get_document(source["doc_id"])
         if doc is None:
             continue
-        events = store.npt(**filters, doc_id=doc.doc_id)
-        description = max(events, key=lambda e: e.hours).description if events else ""
-        if description and _is_verbatim(description, doc.text):
-            quote = description
-        else:
-            quote = snippet(doc.text, tokenize(description))
-        out.append(_pack_entry(doc, quote, "figure_source"))
+        entries = store.npt(**filters, doc_id=doc.doc_id)
+        out.append(_pack_entry(doc, evidence_quote(doc, terms, entries, plan.depth_m), "figure_source"))
     return out
 
 
@@ -200,17 +216,16 @@ def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 4) -> list[dict
             low = sentence.lower()
             if needles and not any(n in low for n in needles):
                 continue
-            # A mitigation is shown as a quote, so it has to be one. parse_eowr
-            # normalises the text (NFKC, unicode fractions, dashes, apostrophes),
-            # so a sentence that contained one of those characters is not in the
-            # raw report word for word and is skipped here.
-            if not _is_verbatim(sentence, doc.text):
+            # A mitigation is shown as a quote, so it is the raw span the parser
+            # read the (normalised) sentence from.
+            quote = verbatim_quote(doc.text, sentence)
+            if quote is None:
                 continue
             key = low[:80]
             if key in seen:
                 continue
             seen.add(key)
-            out.append({"text": sentence, "doc_id": doc.doc_id, "well": doc.well})
+            out.append({"text": quote, "doc_id": doc.doc_id, "well": doc.well})
             if len(out) >= limit:
                 return out
     return out
@@ -288,8 +303,10 @@ def ask(
 
     cited_sources = sources[:FIGURE_SOURCE_LIMIT]
     mitigations = _mitigations_for(store, plan)
-    pack = _merge(_evidence_pack(hits, question), _figure_source_pack(store, plan, cited_sources),
-                  _mitigation_sources(store, mitigations))
+    terms = quote_terms(question, plan)
+    figure_pack = _figure_source_pack(store, plan, cited_sources, terms)
+    hits = _quote_once(hits, figure_pack)
+    pack = _merge(_evidence_pack(hits, terms), figure_pack, _mitigation_sources(store, mitigations))
 
     summary = {
         "figures": figures,

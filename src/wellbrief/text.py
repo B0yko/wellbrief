@@ -11,8 +11,6 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from .config import SYNTHETIC_FOOTER
-
 # 12 1/4"  /  8-1/2 in  /  17.5"
 _SECTION_RE = re.compile(r'(\d{1,2})\s*[-\s]?\s*(\d)/(\d)\s*(?:"|in\b|inch\b)', re.I)
 _SECTION_DEC_RE = re.compile(r'(\d{1,2}(?:\.\d+)?)\s*(?:"|in\b|inch\b)', re.I)
@@ -93,23 +91,3 @@ def tokenize(text: str) -> list[str]:
         tokens.append(w)
 
     return tokens
-
-
-def snippet(text: str, terms: list[str], width: int = 240) -> str:
-    """Pull the most term-dense line out of a document for display.
-
-    The synthetic-document footer is never picked.
-    """
-    wanted = {t.lower() for t in terms if not t.startswith(("sec:", "well:", "depth:", "dband:", "mw:"))}
-    best, best_score = "", -1
-    for line in text.splitlines():
-        stripped = line.strip()
-        if len(stripped) < 12 or stripped == SYNTHETIC_FOOTER:
-            continue
-        low = stripped.lower()
-        score = sum(1 for t in wanted if t in low)
-        if score > best_score:
-            best, best_score = stripped, score
-    if not best:
-        best = text.strip().splitlines()[0] if text.strip() else ""
-    return best[:width]
