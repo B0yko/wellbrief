@@ -55,7 +55,7 @@ from .config import (
 from .llm import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
 from .miner import MinerScope, exposed_clean_wells, mine_mitigations
 from .models import Answer, Citation, Document, SearchHit
-from .quotes import evidence_quote
+from .quotes import evidence_quote, quote_page
 from .search import QueryPlan, Searcher, plan_query, quote_terms
 from .store import Store
 
@@ -355,8 +355,10 @@ def ask(
         "scope": plan.filters_text(types=False),
     }
     text = narrator.answer(question, pack, summary)
+    pack_docs = {doc_id: store.get_document(doc_id) for doc_id in dict.fromkeys(e["doc_id"] for e in pack)}
     citations = [
-        Citation(doc_id=e["doc_id"], doc_type=e["doc_type"], well=e["well"], date=e["date"], quote=e["quote"])
+        Citation(doc_id=e["doc_id"], doc_type=e["doc_type"], well=e["well"], date=e["date"], quote=e["quote"],
+                page=quote_page(doc, e["quote"]) if (doc := pack_docs[e["doc_id"]]) else None)
         for e in pack
     ]
     return Answer(

@@ -18,17 +18,17 @@ the caller can abstain instead of answering a different question.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field as dc_field
 from typing import Any
 
-from .bm25 import BM25Index
 from .config import CODE_SYNONYMS, DEFAULT_TOP_K, DEPTH_BAND_M, RRF_K
 from .embed import Embedder
 from .models import Document, NptEvent, SearchHit
 from .quotes import evidence_quote
-from .store import Store, VectorIndex
+from .store import Store, chunk_document_id
 from .text import canonical_section, normalise, tokenize
+from .workspace import FieldIndex
 
 # ---------------------------------------------------------------------------
 # Vocabulary of the planner
@@ -669,12 +669,62 @@ def quoted_entries(plan: QueryPlan, store: Store, doc_ids: Iterable[str]) -> dic
     return out
 
 
+def _reduce_best_chunk(ranking: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """The document ranking a chunk ranking implies: each document keeps its single
+    best-ranked chunk's score. `ranking` is sorted best first, so the first chunk seen
+    for a document is that document's best (only the best chunk per document counts,
+    before top-k selection)."""
+    best: dict[str, float] = {}
+    order: list[str] = []
+    for chunk_id, score in ranking:
+        doc_id = chunk_document_id(chunk_id)
+        if doc_id not in best:
+            best[doc_id] = score
+            order.append(doc_id)
+    return [(d, best[d]) for d in order]
+
+
 class Searcher:
-    def __init__(self, store: Store, bm25: BM25Index, vectors: VectorIndex, embedder: Embedder):
+    """Hybrid retrieval over one workspace's per-field chunk indexes.
+
+    A question naming a field (`plan.fields`) is answered from that field's
+    index alone; otherwise every field's ranking is computed independently
+    (bm25, dense and depth fused within the field) and the per-field document
+    rankings are then themselves fused with RRF, so one field's score scale
+    never drowns out another's.
+    """
+
+    def __init__(self, store: Store, field_indexes: Mapping[str, FieldIndex], embedder: Embedder):
         self.store = store
-        self.bm25 = bm25
-        self.vectors = vectors
+        self.field_indexes = dict(field_indexes)
         self.embedder = embedder
+
+    def _field_ranking(self, field_name: str, query: str, qvec: list[float] | None,
+                       allowed: set[str] | None, depth: list[tuple[str, float]],
+                       pool: int) -> list[tuple[str, float, dict[str, float]]]:
+        index = self.field_indexes.get(field_name)
+        if index is None:
+            return []
+        allowed_chunks: set[str] | None = None
+        if allowed is not None:
+            allowed_chunks = {c for c in index.bm25.doc_ids if chunk_document_id(c) in allowed}
+            if not allowed_chunks:
+                return []
+        rankings: dict[str, list[tuple[str, float]]] = {
+            "bm25": _reduce_best_chunk(index.bm25.search(query, top_k=pool, allowed=allowed_chunks)),
+        }
+        try:
+            rankings["dense"] = (
+                _reduce_best_chunk(index.vectors.search(qvec, top_k=pool, allowed=allowed_chunks))
+                if qvec is not None else []
+            )
+        except Exception:  # noqa: BLE001 - the dense side is optional
+            rankings["dense"] = []
+        field_docs = index.doc_ids
+        field_depth = [(d, s) for d, s in depth if d in field_docs][:pool]
+        if field_depth:
+            rankings["depth"] = field_depth
+        return rrf_fuse(rankings)[:pool]
 
     def search(self, question: str, top_k: int = DEFAULT_TOP_K,
                plan: QueryPlan | None = None) -> tuple[list[SearchHit], QueryPlan]:
@@ -687,24 +737,24 @@ class Searcher:
         if allowed is not None and not allowed:
             return [], plan
 
+        target_fields = plan.fields or sorted(self.field_indexes)
         pool = max(top_k * 5, 40)
         query = expanded_query(question, plan)
-        rankings: dict[str, list[tuple[str, float]]] = {
-            "bm25": self.bm25.search(query, top_k=pool, allowed=allowed),
-        }
         try:
             qvec = self.embedder.embed(query)
-            rankings["dense"] = self.vectors.search(qvec, top_k=pool, allowed=allowed)
         except Exception:  # noqa: BLE001 - the dense side is optional
-            # If the dense side raises, keyword results are still returned
-            # on their own.
-            rankings["dense"] = []
+            qvec = None
         # A depth in the question is a preference: reports near it get a third vote.
         depth = _depth_ranking(plan, self.store, allowed)
-        if depth:
-            rankings["depth"] = depth[:pool]
 
-        fused = rrf_fuse(rankings)[:top_k]
+        per_field = {f: r for f in target_fields
+                    if (r := self._field_ranking(f, query, qvec, allowed, depth, pool))}
+        if len(per_field) <= 1:
+            fused = next(iter(per_field.values()), [])[:top_k]
+        else:
+            cross = {f"field:{name}": [(d, s) for d, s, _ in ranked] for name, ranked in per_field.items()}
+            fused = rrf_fuse(cross)[:top_k]
+
         terms = quote_terms(question, plan)
         entries = quoted_entries(plan, self.store, (doc_id for doc_id, _, _ in fused))
         hits: list[SearchHit] = []
@@ -715,7 +765,3 @@ class Searcher:
             quote = evidence_quote(doc, terms, entries.get(doc_id, ()), plan.depth_m)
             hits.append(SearchHit(doc_id=doc_id, score=score, document=doc, snippet=quote, components=parts))
         return hits, plan
-
-
-def build_searcher(store: Store, bm25: BM25Index, vectors: VectorIndex, embedder: Embedder) -> Searcher:
-    return Searcher(store, bm25, vectors, embedder)

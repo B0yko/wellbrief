@@ -25,14 +25,13 @@ from typing import Any
 from .. import __version__
 from ..analytics import find_patterns, interval_patterns
 from ..corpus import FORMATS, build_corpus, write_corpus
-from ..embed import get_embedder
 from ..ingest import ingest, load_corpus_dir
 from ..llm import OfflineNarrator
 from ..miner import classify_many
 from ..qa import ask as product_ask
 from ..riskbrief import build_brief, verify_brief
-from ..search import Searcher
-from ..store import Store, load_indexes
+from ..store import Store
+from ..workspace import build_searcher
 
 
 class NotSupported(Exception):
@@ -144,8 +143,7 @@ class Workspace:
         work_dir.mkdir(parents=True, exist_ok=True)
         self.store = Store(work_dir / "wellbrief.db")
         ingest(self.store, load_corpus_dir(corpus_dir))
-        bm25, vectors = load_indexes(self.store)
-        self.searcher = Searcher(self.store, bm25, vectors, get_embedder("offline"))
+        self.searcher = build_searcher(self.store, "offline")
         self.narrator = OfflineNarrator()
 
     def close(self) -> None:

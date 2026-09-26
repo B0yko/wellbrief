@@ -2,17 +2,13 @@
 
 The values are illustrative defaults. Taxonomy, thresholds and retrieval
 knobs are constants in this version; the spread rate is set with
---spread-rate and the data directory with WELLBRIEF_DATA_DIR.
+--spread-rate, and the workspace that holds the store and its indexes with
+--workspace / WELLBRIEF_WORKSPACE and WELLBRIEF_HOME (see `workspace.py`).
 """
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
-
-DATA_DIR = Path(os.environ.get("WELLBRIEF_DATA_DIR", Path.cwd() / "data"))
-CORPUS_DIR = DATA_DIR / "corpus"
-DB_PATH = DATA_DIR / "wellbrief.db"
 
 # --------------------------------------------------------------------------
 # NPT taxonomy
@@ -164,6 +160,17 @@ EQUIPMENT_MIN_WELLS = 3
 
 # Default cap on the number of risks a brief lists, ranked by expected cost.
 RISK_MAX_RISKS = 8
+
+# --------------------------------------------------------------------------
+# Chunking
+# --------------------------------------------------------------------------
+# A document longer than CHUNK_THRESHOLD_CHARS is split into chunks of at
+# most CHUNK_MAX_CHARS, breaking at a heading or a blank line where one falls
+# inside the limit; a shorter document stays one chunk. Indexes are built
+# over chunks (`workspace.FieldIndex`), and retrieval keeps the best chunk
+# per document before ranking documents.
+CHUNK_THRESHOLD_CHARS = 4_000
+CHUNK_MAX_CHARS = 1_500
 
 # --------------------------------------------------------------------------
 # Backends

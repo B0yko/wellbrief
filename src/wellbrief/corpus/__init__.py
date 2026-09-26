@@ -37,36 +37,13 @@ format, and the manifest hash), `truth` (the sidecar).
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from ..config import CORPUS_DIR
-from ..models import Document, Well
 from .fields import FIELDS, OPERATOR, ORRINDALE, VESSRA_SOUTH
 from .generator import MAX_SCALE, SEED, build_corpus
 from .records import Corpus, RenderedDocument
 from .writers import FORMATS, WRITERS, OutputDirError, manifest_hash, register_writer, write_corpus
 
-
-def generate(
-    out_dir: Path | str | None = None,
-    write_files: bool = True,
-    seed: int = SEED,
-    scale: int = 1,
-    formats: str = "txt",
-) -> tuple[list[Well], list[Document]]:
-    """Build the corpus and, unless `write_files` is false, write it to `out_dir`.
-
-    Returns the well register and the documents, so a caller can ingest the
-    corpus without reading the files back.
-    """
-    corpus = build_corpus(seed=seed, scale=scale)
-    if write_files:
-        write_corpus(corpus, Path(out_dir) if out_dir else CORPUS_DIR, formats)
-    return corpus.well_models(), corpus.document_models()
-
-
 __all__ = [
     "FIELDS", "FORMATS", "MAX_SCALE", "OPERATOR", "ORRINDALE", "SEED", "VESSRA_SOUTH", "WRITERS",
-    "Corpus", "OutputDirError", "RenderedDocument", "build_corpus", "generate", "manifest_hash",
+    "Corpus", "OutputDirError", "RenderedDocument", "build_corpus", "manifest_hash",
     "register_writer", "write_corpus",
 ]

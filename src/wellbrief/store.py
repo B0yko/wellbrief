@@ -1,25 +1,24 @@
-"""SQLite store plus the on-disk retrieval index.
+"""SQLite store: the corpus, the parsed NPT ledger, the well register and the chunk table.
 
-One SQLite file holds the corpus, the parsed NPT ledger and the well
-register. Sidecar files next to it hold the BM25 postings and the dense
-vectors. Together they are the whole state of an index: nothing else is read
-at query time, and no network access is needed.
+One SQLite file (`files`, `documents`, `chunks`, `npt_events`, `wells`,
+`meta`) holds the whole state of a workspace's data; the per-field retrieval
+indexes built over its chunks (BM25 postings, hashing vectors, a manifest)
+live next to it as described in `workspace.py`. Nothing else is read at
+query time, and no network access is needed.
 """
 
 from __future__ import annotations
 
-import array
 import hashlib
 import json
+import re
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .bm25 import BM25Index
-from .config import DB_PATH, EMBED_BACKEND
-from .embed import Embedder, get_embedder
-from .models import Document, NptEvent, Well
+from .config import CHUNK_MAX_CHARS, CHUNK_THRESHOLD_CHARS
+from .models import Chunk, Document, FileRecord, NptEvent, Well
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -30,11 +29,23 @@ CREATE TABLE IF NOT EXISTS documents (
     date       TEXT NOT NULL,
     title      TEXT NOT NULL,
     text       TEXT NOT NULL,
-    meta       TEXT NOT NULL
+    meta       TEXT NOT NULL,
+    source     TEXT NOT NULL DEFAULT '',
+    page_map   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_documents_well  ON documents(well);
 CREATE INDEX IF NOT EXISTS ix_documents_field ON documents(field_name);
 CREATE INDEX IF NOT EXISTS ix_documents_type  ON documents(doc_type);
+
+CREATE TABLE IF NOT EXISTS chunks (
+    chunk_id TEXT PRIMARY KEY,
+    doc_id   TEXT NOT NULL REFERENCES documents(doc_id),
+    n        INTEGER NOT NULL,
+    start    INTEGER NOT NULL,
+    end      INTEGER NOT NULL,
+    text     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_chunks_doc ON chunks(doc_id);
 
 CREATE TABLE IF NOT EXISTS npt_events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,12 +77,23 @@ CREATE TABLE IF NOT EXISTS wells (
     formations TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS files (
+    path       TEXT PRIMARY KEY,
+    sha256     TEXT NOT NULL,
+    size       INTEGER NOT NULL,
+    mtime      REAL NOT NULL,
+    doc_ids    TEXT NOT NULL,
+    status     TEXT NOT NULL,
+    reason     TEXT,
+    field_name TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 """
 
 
 class Store:
-    def __init__(self, db_path: Path | str = DB_PATH):
+    def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
@@ -84,20 +106,31 @@ class Store:
         self.conn.close()
 
     def reset(self) -> None:
-        for table in ("npt_events", "documents", "wells", "kv"):
+        for table in ("chunks", "npt_events", "documents", "wells", "files", "meta"):
             self.conn.execute(f"DELETE FROM {table}")
         self.conn.commit()
 
-    # -- writes -----------------------------------------------------------
+    # -- writes: documents --------------------------------------------------
     def put_documents(self, docs: Iterable[Document]) -> int:
+        """Insert or replace documents, and (re-)chunk each one (see `chunk_document`).
+
+        A document's chunks are always derived from its current text and
+        kept in step with it here, so every writer that stores a document --
+        `ingest.ingest`, a hand-built test fixture, a future incremental
+        re-ingest of a changed file -- gets a chunk table for free, and a
+        replaced document never keeps a stale chunk from its previous text.
+        """
+        docs = list(docs)
         rows = [
-            (d.doc_id, d.doc_type, d.well, d.field_name, d.date, d.title, d.text, json.dumps(d.meta))
+            (d.doc_id, d.doc_type, d.well, d.field_name, d.date, d.title, d.text, json.dumps(d.meta),
+             d.source, json.dumps(d.page_map) if d.page_map is not None else None)
             for d in docs
         ]
         self.conn.executemany(
-            "INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?,?,?,?)", rows
+            "INSERT OR REPLACE INTO documents VALUES (?,?,?,?,?,?,?,?,?,?)", rows
         )
         self.conn.commit()
+        self.put_chunks(chunk for d in docs for chunk in chunk_document(d.doc_id, d.text))
         return len(rows)
 
     def put_wells(self, wells: Iterable[Well]) -> int:
@@ -111,11 +144,21 @@ class Store:
         return len(rows)
 
     def put_npt(self, events: Iterable[NptEvent]) -> int:
+        """Replace the NPT events of every document `events` touches, then insert them.
+
+        Mirrors `put_chunks`: a document's whole set of events is always
+        written together, so re-ingesting the same file (for example running
+        `wellbrief ingest` twice on an unchanged folder) replaces its events
+        rather than appending a second copy of them.
+        """
         rows = [
             (e.doc_id, e.well, e.field_name, e.date, e.code, e.hours, e.hole_section,
              e.formation, e.depth_m, e.mud_weight_sg, e.rig, e.description, e.mwd)
             for e in events
         ]
+        doc_ids = sorted({r[0] for r in rows})
+        if doc_ids:
+            self.conn.executemany("DELETE FROM npt_events WHERE doc_id = ?", [(d,) for d in doc_ids])
         self.conn.executemany(
             "INSERT INTO npt_events (doc_id, well, field_name, date, code, hours, hole_section,"
             " formation, depth_m, mud_weight_sg, rig, description, mwd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -124,21 +167,84 @@ class Store:
         self.conn.commit()
         return len(rows)
 
-    def set_kv(self, key: str, value: Any) -> None:
-        self.conn.execute("INSERT OR REPLACE INTO kv VALUES (?,?)", (key, json.dumps(value)))
+    # -- writes: chunks -------------------------------------------------------
+    def put_chunks(self, chunks: Iterable[Chunk]) -> int:
+        """Replace the chunks of every document `chunks` touches, then insert them.
+
+        A document's whole set of chunks is always written together, so a
+        re-ingested (changed) document never keeps a stale chunk from a
+        shorter earlier version of itself.
+        """
+        rows = list(chunks)
+        doc_ids = sorted({c.doc_id for c in rows})
+        if doc_ids:
+            self.conn.executemany("DELETE FROM chunks WHERE doc_id = ?", [(d,) for d in doc_ids])
+        self.conn.executemany(
+            "INSERT INTO chunks (chunk_id, doc_id, n, start, end, text) VALUES (?,?,?,?,?,?)",
+            [(c.chunk_id, c.doc_id, c.n, c.start, c.end, c.text) for c in rows],
+        )
+        self.conn.commit()
+        return len(rows)
+
+    def chunks(self, field_name: str | None = None, doc_id: str | None = None) -> list[Chunk]:
+        sql = "SELECT c.chunk_id, c.doc_id, c.n, c.start, c.end, c.text FROM chunks c"
+        clauses, params = [], []
+        if field_name is not None:
+            sql += " JOIN documents d ON d.doc_id = c.doc_id"
+            clauses.append("d.field_name = ?")
+            params.append(field_name)
+        if doc_id is not None:
+            clauses.append("c.doc_id = ?")
+            params.append(doc_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY c.doc_id, c.n"
+        return [
+            Chunk(chunk_id=r["chunk_id"], doc_id=r["doc_id"], n=r["n"], start=r["start"], end=r["end"],
+                  text=r["text"])
+            for r in self.conn.execute(sql, params)
+        ]
+
+    # -- writes: files ----------------------------------------------------
+    def put_files(self, records: Iterable[FileRecord]) -> int:
+        rows = [
+            (r.path, r.sha256, r.size, r.mtime, json.dumps(r.doc_ids), r.status, r.reason, r.field_name)
+            for r in records
+        ]
+        self.conn.executemany("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?)", rows)
+        self.conn.commit()
+        return len(rows)
+
+    @staticmethod
+    def _file(row: sqlite3.Row) -> FileRecord:
+        return FileRecord(path=row["path"], sha256=row["sha256"], size=row["size"], mtime=row["mtime"],
+                          doc_ids=json.loads(row["doc_ids"]), status=row["status"], reason=row["reason"],
+                          field_name=row["field_name"])
+
+    def files(self) -> list[FileRecord]:
+        return [self._file(r) for r in self.conn.execute("SELECT * FROM files ORDER BY path")]
+
+    def get_file(self, path: str) -> FileRecord | None:
+        row = self.conn.execute("SELECT * FROM files WHERE path=?", (path,)).fetchone()
+        return self._file(row) if row else None
+
+    # -- meta (small keyed values, e.g. schema bookkeeping) ------------------
+    def set_meta(self, key: str, value: Any) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, json.dumps(value)))
         self.conn.commit()
 
-    def get_kv(self, key: str, default: Any = None) -> Any:
-        row = self.conn.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+    def get_meta(self, key: str, default: Any = None) -> Any:
+        row = self.conn.execute("SELECT v FROM meta WHERE k=?", (key,)).fetchone()
         return json.loads(row["v"]) if row else default
 
-    # -- reads ------------------------------------------------------------
+    # -- reads: documents ---------------------------------------------------
     @staticmethod
     def _doc(row: sqlite3.Row) -> Document:
         return Document(
             doc_id=row["doc_id"], doc_type=row["doc_type"], well=row["well"],
             field_name=row["field_name"], date=row["date"], title=row["title"],
-            text=row["text"], meta=json.loads(row["meta"]),
+            text=row["text"], meta=json.loads(row["meta"]), source=row["source"],
+            page_map=json.loads(row["page_map"]) if row["page_map"] is not None else None,
         )
 
     def get_document(self, doc_id: str) -> Document | None:
@@ -177,6 +283,26 @@ class Store:
         start, end = "json_extract(meta, '$.depth_start_m')", "json_extract(meta, '$.depth_end_m')"
         sql = f"SELECT doc_id FROM documents{where} AND {end} >= ? AND COALESCE({start}, {end}) <= ?"
         return {r[0] for r in self.conn.execute(sql, [*params, depth_min, depth_max])}
+
+    def field_names(self) -> list[str]:
+        """Every distinct `field_name` documents are filed under, whatever it is
+        (including a placeholder like `"unassigned"` or `"UNKNOWN"`, or even an
+        empty string): the set a per-field index is built over. `field_name` is
+        `NOT NULL`, so nothing here is actually excluded.
+        `catalog()["fields"]` is the narrower, planner-facing vocabulary of
+        *named* fields."""
+        return sorted({r[0] for r in self.conn.execute("SELECT DISTINCT field_name FROM documents")})
+
+    def field_counts(self, field_name: str) -> dict[str, int]:
+        """Documents, chunks and NPT events filed under one field (`wellbrief status`)."""
+        documents = self.conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE field_name=?", (field_name,)).fetchone()[0]
+        chunks = self.conn.execute(
+            "SELECT COUNT(*) FROM chunks c JOIN documents d ON d.doc_id = c.doc_id WHERE d.field_name=?",
+            (field_name,)).fetchone()[0]
+        npt_events = self.conn.execute(
+            "SELECT COUNT(*) FROM npt_events WHERE field_name=?", (field_name,)).fetchone()[0]
+        return {"documents": documents, "chunks": chunks, "npt_events": npt_events}
 
     def wells(self, field_name: str | None = None) -> list[Well]:
         sql, params = "SELECT * FROM wells", []
@@ -303,7 +429,7 @@ class Store:
 
     def counts(self) -> dict[str, int]:
         out = {}
-        for table in ("documents", "npt_events", "wells"):
+        for table in ("documents", "chunks", "npt_events", "wells", "files"):
             out[table] = self.conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
         return out
 
@@ -324,97 +450,83 @@ class Store:
 
 
 # --------------------------------------------------------------------------
-# Retrieval index
+# Chunking
 # --------------------------------------------------------------------------
 
-class VectorIndex:
-    """Dense side of the hybrid, stored as a flat float32 file."""
+def chunk_document_id(chunk_id: str) -> str:
+    """The document id a chunk id (`<doc_id>#<n>`) belongs to.
 
-    def __init__(self, doc_ids: list[str], vectors: list[list[float]], dim: int, backend: str):
-        self.doc_ids = doc_ids
-        self.vectors = vectors
-        self.dim = dim
-        self.backend = backend
-
-    @classmethod
-    def build(cls, items: list[tuple[str, str]], embedder: Embedder) -> VectorIndex:
-        doc_ids = [d for d, _ in items]
-        vectors = embedder.embed_many([t for _, t in items])
-        dim = len(vectors[0]) if vectors else embedder.dim
-        return cls(doc_ids, vectors, dim, embedder.name)
-
-    def save(self, base: Path) -> None:
-        base.parent.mkdir(parents=True, exist_ok=True)
-        flat = array.array("f")
-        for v in self.vectors:
-            flat.extend(v)
-        with open(base.with_suffix(".vec"), "wb") as fh:
-            flat.tofile(fh)
-        base.with_suffix(".vecmeta.json").write_text(
-            json.dumps({"doc_ids": self.doc_ids, "dim": self.dim, "backend": self.backend}),
-            encoding="utf-8",
-        )
-
-    @classmethod
-    def load(cls, base: Path) -> VectorIndex:
-        meta = json.loads(base.with_suffix(".vecmeta.json").read_text(encoding="utf-8"))
-        dim = meta["dim"]
-        flat = array.array("f")
-        with open(base.with_suffix(".vec"), "rb") as fh:
-            flat.fromfile(fh, len(meta["doc_ids"]) * dim)
-        vectors = [list(flat[i * dim:(i + 1) * dim]) for i in range(len(meta["doc_ids"]))]
-        return cls(meta["doc_ids"], vectors, dim, meta["backend"])
-
-    def search(self, query_vec: list[float], top_k: int = 20,
-               allowed: set[str] | None = None) -> list[tuple[str, float]]:
-        scored: list[tuple[str, float]] = []
-        for doc_id, vec in zip(self.doc_ids, self.vectors, strict=True):
-            if allowed is not None and doc_id not in allowed:
-                continue
-            scored.append((doc_id, sum(a * b for a, b in zip(query_vec, vec, strict=False))))
-        scored.sort(key=lambda kv: (-kv[1], kv[0]))
-        return [(d, round(s, 6)) for d, s in scored[:top_k]]
+    This is the only place that mapping is recorded: a per-field index's
+    postings and vectors are keyed on chunk id alone, and this function
+    recovers the document without a separate id-mapping file on disk.
+    """
+    return chunk_id.rsplit("#", 1)[0]
 
 
-def index_paths(db_path: Path) -> tuple[Path, Path]:
-    base = db_path.with_suffix("")
-    return base.with_name(base.name + "_bm25").with_suffix(".json"), base.with_name(base.name + "_vec")
+# A line that is its own heading: short, all upper case (ignoring digits,
+# spaces and light punctuation), at least two letters. Deliberately looser
+# than `quotes._heading_key` (chunk boundaries only need to be plausible
+# breaks, not exactly the sections a citation quote is chosen from).
+_HEADING_LINE = re.compile(r"^\d{0,2}\.?\s*[A-Z][A-Z0-9 /()\"'.,:&-]{1,78}$")
 
 
-def index_manifest_hash(db_path: Path) -> str:
-    """sha256 over the on-disk retrieval index files (BM25 postings, vector
-    data and its metadata) next to `db_path`; empty string when they are not
-    built yet. Stands in for a per-field `manifest.json` until the workspace
-    layout that names one is built."""
-    bm25_path, vec_base = index_paths(db_path)
-    paths = [bm25_path, vec_base.with_suffix(".vec"), vec_base.with_suffix(".vecmeta.json")]
-    digest = hashlib.sha256()
-    found = False
-    for path in paths:
-        if path.exists():
-            found = True
-            digest.update(path.read_bytes())
-    return digest.hexdigest() if found else ""
+def _is_heading_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or stripped != stripped.upper():
+        return False
+    if sum(c.isalpha() for c in stripped) < 2:
+        return False
+    return bool(_HEADING_LINE.match(stripped))
 
 
-def build_indexes(store: Store, embed_backend: str = EMBED_BACKEND) -> tuple[BM25Index, VectorIndex]:
-    docs = store.documents()
-    items = [(d.doc_id, f"{d.title}\n{d.text}") for d in docs]
-    bm25 = BM25Index.build(items)
-    vectors = VectorIndex.build(items, get_embedder(embed_backend))
+def _split_points(text: str) -> list[int]:
+    """Offsets where a chunk may start: right after a blank line, and at the
+    start of a heading-like line ("NPT DETAIL", "4. LESSONS LEARNED")."""
+    points: set[int] = set()
+    pos = 0
+    for line in text.split("\n"):
+        end = pos + len(line)
+        if line.strip() == "":
+            after = end + 1
+            if after <= len(text):
+                points.add(after)
+        elif _is_heading_line(line):
+            points.add(pos)
+        pos = end + 1
+    return sorted(points)
 
-    bm25_path, vec_base = index_paths(store.db_path)
-    bm25_path.write_text(json.dumps(bm25.to_json()), encoding="utf-8")
-    vectors.save(vec_base)
-    store.set_kv("index_backend", vectors.backend)
-    store.set_kv("index_docs", len(items))
-    return bm25, vectors
+
+def _chunk_spans(text: str, max_chars: int) -> list[tuple[int, int]]:
+    n = len(text)
+    if n == 0:
+        return [(0, 0)]
+    points = _split_points(text)
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while start < n:
+        limit = start + max_chars
+        if limit >= n:
+            spans.append((start, n))
+            break
+        candidates = [b for b in points if start < b <= limit]
+        cut = max(candidates) if candidates else limit
+        spans.append((start, cut))
+        start = cut
+    return spans
 
 
-def load_indexes(store: Store) -> tuple[BM25Index, VectorIndex]:
-    bm25_path, vec_base = index_paths(store.db_path)
-    if not bm25_path.exists() or not vec_base.with_suffix(".vec").exists():
-        return build_indexes(store)
-    bm25 = BM25Index.from_json(json.loads(bm25_path.read_text(encoding="utf-8")))
-    vectors = VectorIndex.load(vec_base)
-    return bm25, vectors
+def chunk_document(doc_id: str, text: str, max_chars: int = CHUNK_MAX_CHARS,
+                   threshold: int = CHUNK_THRESHOLD_CHARS) -> list[Chunk]:
+    """Split one document's text into the chunks its per-field index is built over.
+
+    A document of `threshold` characters or fewer stays one chunk. A longer
+    one is cut into pieces of at most `max_chars`, preferring a break at a
+    heading or a blank line; a stretch with no such break within `max_chars`
+    is cut hard. Chunks are contiguous and cover the whole text.
+    """
+    if len(text) <= threshold:
+        return [Chunk(f"{doc_id}#0", doc_id, 0, 0, len(text), text)]
+    return [
+        Chunk(f"{doc_id}#{i}", doc_id, i, start, end, text[start:end])
+        for i, (start, end) in enumerate(_chunk_spans(text, max_chars))
+    ]

@@ -70,6 +70,7 @@ __all__ = [
     "best_passage",
     "evidence_quote",
     "passages",
+    "quote_page",
     "raw_span",
     "verbatim_quote",
 ]
@@ -506,3 +507,25 @@ def evidence_quote(doc: Document, terms: Iterable[str], entries: Sequence[NptEve
             if quote:
                 return quote
     return best_passage(doc.text, doc.doc_type, tokens)
+
+
+def quote_page(doc: Document, quote: str) -> int | None:
+    """The 1-based page `quote` falls on, from `doc.page_map`; None when the
+    document carries no page map (every document but a PDF, in this version)
+    or the quote cannot be found in the raw text.
+
+    `page_map` is a sorted list of the character offset in `doc.text` where
+    each page ends (so a PDF reader that keeps page boundaries can build one
+    without joining pages itself): the page of an offset is the position of
+    the first boundary past it.
+    """
+    if not doc.page_map or not quote:
+        return None
+    span = raw_span(doc.text, quote)
+    if span is None:
+        return None
+    offset = span[0]
+    for page, end in enumerate(doc.page_map, start=1):
+        if offset < end:
+            return page
+    return len(doc.page_map)

@@ -18,15 +18,15 @@ import mini_workspace as mini
 from wellbrief import parse
 from wellbrief.config import FIGURE_SOURCE_LIMIT, SYNTHETIC_FOOTER
 from wellbrief.corpus import SEED, build_corpus, write_corpus
-from wellbrief.embed import get_embedder
 from wellbrief.evals.cases import load_suite
 from wellbrief.ingest import ingest, load_corpus_dir
 from wellbrief.models import Answer, Document, NptEvent
 from wellbrief.qa import ask
 from wellbrief.quotes import best_passage, evidence_quote, passages, raw_span, verbatim_quote
 from wellbrief.search import Searcher
-from wellbrief.store import Store, load_indexes
+from wellbrief.store import Store
 from wellbrief.text import tokenize
+from wellbrief.workspace import build_searcher
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "cases"
 
@@ -527,8 +527,7 @@ def corpus_answers(tmp_path_factory: pytest.TempPathFactory) -> tuple[Store, lis
     write_corpus(build_corpus(seed=SEED), root / "corpus")
     store = Store(root / "wellbrief.db")
     ingest(store, load_corpus_dir(root / "corpus"))
-    bm25, vectors = load_indexes(store)
-    searcher = Searcher(store, bm25, vectors, get_embedder("offline"))
+    searcher = build_searcher(store)
     return store, [ask(q, store, searcher) for q in _questions()]
 
 

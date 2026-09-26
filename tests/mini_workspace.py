@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from wellbrief.embed import get_embedder
 from wellbrief.models import Document, NptEvent, Well
 from wellbrief.search import Searcher
-from wellbrief.store import Store, build_indexes
+from wellbrief.store import Store
+from wellbrief.workspace import build_searcher
 
 SECTIONS = ['26"', '17 1/2"', '12 1/4"', '8 1/2"']
 FORMATIONS = {
@@ -138,6 +138,5 @@ def store(tmp_path: Path) -> Store:
 
 
 def searcher(s: Store) -> Searcher:
-    """Indexes built next to the store (inside the test's tmp dir) and a searcher over them."""
-    bm25, vectors = build_indexes(s)
-    return Searcher(s, bm25, vectors, get_embedder("offline"))
+    """A searcher over freshly built, in-memory per-field indexes of the store's current chunks."""
+    return build_searcher(s)

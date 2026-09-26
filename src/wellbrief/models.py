@@ -23,6 +23,52 @@ class Document:
     title: str
     text: str
     meta: dict[str, Any] = field(default_factory=dict)
+    source: str = ""              # path of the ingested file, relative to the ingested root
+    page_map: list[int] | None = None   # PDF only: cumulative end-offset of each page in `text`
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Chunk:
+    """One retrievable slice of a document's text (see `store.chunk_document`).
+
+    `start`/`end` are character offsets into the document's raw text;
+    `chunk_id` is `<doc_id>#<n>`, which is also how a chunk id is mapped back
+    to its document (`store.chunk_document_id`), so no separate mapping needs
+    to be persisted alongside the per-field indexes.
+    """
+
+    chunk_id: str
+    doc_id: str
+    n: int
+    start: int
+    end: int
+    text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class FileRecord:
+    """One ingested file's bookkeeping row (the `files` table).
+
+    `doc_ids` is a list because one file can yield more than one document (a
+    CSV ledger row becomes its own citable one-line document); `reason` is
+    set when `status` is not `"ingested"` (for example a skipped or unreadable
+    file), for the ingest coverage report.
+    """
+
+    path: str
+    sha256: str
+    size: int
+    mtime: float
+    doc_ids: list[str]
+    status: str
+    reason: str | None = None
+    field_name: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,7 +117,9 @@ class Citation:
     `quote` is copied verbatim out of the source document.
     `riskbrief.verify_brief` checks every brief citation against its source,
     and `qa.verify_citations` flags any document id an answer cites that is
-    not in its evidence pack.
+    not in its evidence pack. `page` is the 1-based page the quote falls on
+    when the source document carries a page map (PDF only, from
+    `quotes.quote_page`); null for every other document type.
     """
 
     doc_id: str
@@ -79,6 +127,7 @@ class Citation:
     well: str
     date: str
     quote: str
+    page: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

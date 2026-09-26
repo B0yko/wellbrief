@@ -1,10 +1,12 @@
 """Command line interface.
 
 Every command needs no network access. `corpus generate` writes the
-synthetic corpus and its ground truth to a directory; every other command
-works on the local SQLite store and index files. `--json` switches status,
-ask, npt, patterns, digest, eval and corpus generate to machine-readable
-output; `brief` has its own `--format text|md|json` instead.
+synthetic corpus and its ground truth to a directory; `ingest` loads a folder
+of well files into a workspace's store; every other command works on that
+workspace's store and its per-field index files (see `workspace.py`).
+`--json` switches status, ask, npt, patterns, digest, eval, corpus generate
+and index to machine-readable output; `brief` has its own
+`--format text|md|json` instead.
 """
 
 from __future__ import annotations
@@ -13,31 +15,36 @@ import argparse
 import json
 import sys
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief
-from .config import DB_PATH, DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND, RISK_MAX_RISKS
+from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief, workspace as workspace_mod
+from .config import DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND, RISK_MAX_RISKS
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
 from .llm import get_narrator
 from .qa import ask as ask_qa
 from .search import Searcher
-from .store import Store, build_indexes, load_indexes
+from .store import Store
+from .workspace import FieldIndex, Workspace
 
 
-def _wire(args) -> tuple[Store, Searcher]:
-    store = Store(args.db)
-    embedder = get_embedder(args.embed_backend)
-    bm25, vectors = load_indexes(store)
-    if vectors.backend != embedder.name:
-        # The index on disk was built with a different embedder. Rebuilding is
-        # cheaper than serving mismatched vectors.
-        print(f"[wellbrief] index backend '{vectors.backend}' != '{embedder.name}', rebuilding",
-              file=sys.stderr)
-        bm25, vectors = build_indexes(store, embedder.name)
-    return store, Searcher(store, bm25, vectors, embedder)
+def _workspace(args: argparse.Namespace) -> Workspace:
+    return Workspace.resolve(getattr(args, "workspace", None))
+
+
+def _wire(args) -> tuple[Workspace, Store, Searcher]:
+    ws = _workspace(args)
+    store = ws.open_store()
+    indexes = workspace_mod.ensure_field_indexes(ws, store, args.embed_backend)
+    return ws, store, Searcher(store, indexes, get_embedder(args.embed_backend))
+
+
+def _index_age_seconds(built_at: str) -> float:
+    built = datetime.strptime(built_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return (datetime.now(UTC) - built).total_seconds()
 
 
 def _emit(payload, as_json: bool, text: str = "") -> None:
@@ -51,61 +58,103 @@ def _emit(payload, as_json: bool, text: str = "") -> None:
 # commands
 # --------------------------------------------------------------------------
 
-def cmd_build(args) -> int:
-    store = Store(args.db)
-    ingest_mod.bootstrap(store)
-    counts = store.counts()
-    print("Generated and indexed the demo field history.")
-    print(f"  wells      : {counts['wells']}")
-    print(f"  documents  : {counts['documents']}")
-    print(f"  NPT events : {counts['npt_events']}")
-    print(f"  database   : {store.db_path}")
-    store.close()
-    return 0
-
-
 def cmd_ingest(args) -> int:
-    store = Store(args.db)
+    ws = _workspace(args)
+    store = ws.open_store()
     docs = ingest_mod.load_corpus_dir(args.path)
     if not docs:
         print(f"No .txt files found in {args.path}", file=sys.stderr)
+        store.close()
         return 1
     if args.replace:
         store.reset()
     stats = ingest_mod.ingest(store, docs)
-    print(f"Ingested {stats['documents']} documents and {stats['npt_events']} NPT events from {args.path}")
+    print(f"Ingested {stats['documents']} documents, {stats['chunks']} chunks and "
+          f"{stats['npt_events']} NPT events from {args.path} into workspace '{ws.name}'")
+    workspace_mod.check_field_slugs(store.field_names())
+    touched = sorted({d.field_name for d in docs})
+    built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend) for f in touched]
+    if built:
+        print("Indexed: " + "; ".join(
+            f"{i.field} ({i.manifest.chunks} chunks, {i.manifest.build_seconds:.3f}s)" for i in built))
+    store.close()
+    return 0
+
+
+def cmd_index(args) -> int:
+    ws = _workspace(args)
+    store = ws.open_store()
+    known = store.field_names()
+    workspace_mod.check_field_slugs(known)
+    if args.field and args.field not in known:
+        print(f"wellbrief index: unknown field {args.field!r} (known: {', '.join(known) or '-'})",
+              file=sys.stderr)
+        store.close()
+        return 2
+    fields = [args.field] if args.field else known
+    built: list[FieldIndex] = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend)
+                               for f in fields]
+    payload = {
+        "workspace": ws.name,
+        "fields": [{"field": i.field, "documents": i.manifest.documents, "chunks": i.manifest.chunks,
+                    "corpus_hash": i.manifest.corpus_hash, "embedder": i.manifest.embedder,
+                    "build_seconds": i.manifest.build_seconds, "built_at": i.manifest.built_at}
+                   for i in built],
+    }
+    lines = [f"Indexed {len(built)} field(s) in workspace '{ws.name}':"]
+    lines += [f"  {i.field:<20} {i.manifest.documents:>5} docs  {i.manifest.chunks:>6} chunks"
+             f"  {i.manifest.build_seconds:>7.3f}s  ({i.manifest.embedder})" for i in built]
+    _emit(payload, args.json, "\n".join(lines))
     store.close()
     return 0
 
 
 def cmd_status(args) -> int:
-    store = Store(args.db)
-    counts = store.counts()
-    fields = sorted({w.field_name for w in store.wells()})
+    ws = _workspace(args)
+    store = ws.open_store()
+    fields = store.field_names()
+    workspace_mod.check_field_slugs(fields)
+    rows = []
+    for f in fields:
+        counts = store.field_counts(f)
+        current_hash = store.corpus_hash(f)
+        built = workspace_mod.load_field_index(ws, f)
+        manifest = built.manifest if built else None
+        rows.append({
+            "field": f,
+            "documents": counts["documents"],
+            "chunks": counts["chunks"],
+            "npt_events": counts["npt_events"],
+            "corpus_hash": current_hash,
+            "embedder": manifest.embedder if manifest else None,
+            "index_built_at": manifest.built_at if manifest else None,
+            "index_age_seconds": round(_index_age_seconds(manifest.built_at), 1) if manifest else None,
+            "index_stale": manifest is None or manifest.corpus_hash != current_hash,
+        })
     payload = {
-        "database": str(store.db_path),
-        "counts": counts,
-        "fields": fields,
-        "index_backend": store.get_kv("index_backend"),
-        "indexed_documents": store.get_kv("index_docs"),
-        "embed_backend": args.embed_backend,
-        "llm_backend": args.llm_backend,
+        "workspace": ws.name,
+        "home": str(ws.home),
+        "database": str(ws.db_path),
+        "network_mode": "offline",
+        "fields": rows,
     }
-    lines = [
-        f"database        : {payload['database']}",
-        f"wells           : {counts['wells']} across {len(fields)} field(s): {', '.join(fields) or '-'}",
-        f"documents       : {counts['documents']}",
-        f"NPT events      : {counts['npt_events']}",
-        f"index backend   : {payload['index_backend']}",
-        f"embed / narrate : {args.embed_backend} / {args.llm_backend}",
-    ]
+    lines = [f"workspace    : {ws.name} ({ws.root})", "network mode : offline"]
+    if not rows:
+        lines.append("fields       : none ingested yet")
+    for r in rows:
+        if r["index_built_at"] is None:
+            age = "not built"
+        else:
+            age = f"{r['index_age_seconds']:,.0f}s old" + (" STALE" if r["index_stale"] else "")
+        lines.append(f"  {r['field']:<20} {r['documents']:>5} docs {r['chunks']:>6} chunks "
+                     f"{r['npt_events']:>5} events   index: {age}")
     _emit(payload, args.json, "\n".join(lines))
     store.close()
     return 0
 
 
 def cmd_ask(args) -> int:
-    store, searcher = _wire(args)
+    _, store, searcher = _wire(args)
     narrator = get_narrator(args.llm_backend)
     answer = ask_qa(args.question, store, searcher, narrator=narrator,
                     top_k=args.top_k, spread_rate=args.spread_rate)
@@ -127,11 +176,12 @@ def cmd_ask(args) -> int:
 
 
 def cmd_brief(args) -> int:
-    store, _ = _wire(args)
+    ws, store, _ = _wire(args)
     narrator = get_narrator(args.llm_backend)
     verification_placeholder: dict[str, Any] = {}
+    index_hash = workspace_mod.index_files_hash(ws, args.field)
     provenance = riskbrief.build_provenance(store, args.field, args.spread_rate, narrator.name,
-                                            verification_placeholder)
+                                            verification_placeholder, index_manifest_hash=index_hash)
     brief = riskbrief.build_brief(
         store, args.well, args.field, args.td,
         spread_rate=args.spread_rate, narrator=narrator, max_risks=args.max_risks,
@@ -171,7 +221,7 @@ def cmd_brief(args) -> int:
 
 
 def cmd_npt(args) -> int:
-    store = Store(args.db)
+    store = _workspace(args).open_store()
     filters = {}
     if args.field:
         filters["field_name"] = args.field
@@ -196,7 +246,7 @@ def cmd_npt(args) -> int:
 
 
 def cmd_patterns(args) -> int:
-    store = Store(args.db)
+    store = _workspace(args).open_store()
     patterns = analytics.find_patterns(store, args.field)
     if args.json:
         print(json.dumps([p.to_dict() for p in patterns], indent=2, ensure_ascii=False))
@@ -218,7 +268,7 @@ def cmd_patterns(args) -> int:
 
 
 def cmd_digest(args) -> int:
-    store = Store(args.db)
+    store = _workspace(args).open_store()
     payload = analytics.digest(store, args.since, args.spread_rate)
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -313,7 +363,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Offline retrieval and NPT analytics over drilling well files.",
     )
     p.add_argument("--version", action="version", version=__version__)
-    p.add_argument("--db", default=str(DB_PATH), help="path to the SQLite store")
+    p.add_argument("--workspace", default=None,
+                   help="workspace name inside $WELLBRIEF_HOME (default: $WELLBRIEF_WORKSPACE or 'default')")
     p.add_argument("--embed-backend", default=EMBED_BACKEND, choices=["offline"])
     p.add_argument("--llm-backend", default=LLM_BACKEND, choices=["offline"])
     p.add_argument("--spread-rate", type=float, default=DEFAULT_SPREAD_RATE_USD_PER_DAY,
@@ -321,14 +372,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="machine readable output")
     sub = p.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("build", help="generate and index the demo field history").set_defaults(func=cmd_build)
-
-    sp = sub.add_parser("ingest", help="load a directory of well files")
+    sp = sub.add_parser("ingest", help="load a directory of well files into the workspace")
     sp.add_argument("path", type=Path)
     sp.add_argument("--replace", action="store_true", help="clear the store first")
     sp.set_defaults(func=cmd_ingest)
 
-    sub.add_parser("status", help="what is loaded").set_defaults(func=cmd_status)
+    sp = sub.add_parser("index", help="rebuild the per-field retrieval indexes")
+    sp.add_argument("--field", help="rebuild only this field (default: every field in the workspace)")
+    sp.set_defaults(func=cmd_index)
+
+    sub.add_parser("status", help="what is loaded, and how fresh its indexes are").set_defaults(
+        func=cmd_status)
 
     sp = sub.add_parser("ask", help="ask a question of the archive")
     sp.add_argument("question")

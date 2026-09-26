@@ -34,8 +34,8 @@ from .config import (
 from .llm import Narrator, OfflineNarrator
 from .miner import MinerScope, mine_mitigations
 from .models import Citation, Risk, RiskBrief
-from .quotes import evidence_quote
-from .store import Store, index_manifest_hash
+from .quotes import evidence_quote, quote_page
+from .store import Store
 from .text import tokenize
 
 DISCLAIMER = ("Decision support built from the offset archive. Review by a qualified drilling "
@@ -78,9 +78,10 @@ def _citations_for(store: Store, pattern: Pattern, limit: int = 4) -> list[Citat
         doc = store.get_document(e.doc_id)
         if not doc:
             continue
+        quote = evidence_quote(doc, terms, [e])
         cites.append(Citation(
             doc_id=doc.doc_id, doc_type=doc.doc_type, well=doc.well, date=doc.date,
-            quote=evidence_quote(doc, terms, [e]),
+            quote=quote, page=quote_page(doc, quote),
         ))
     return cites
 
@@ -147,7 +148,7 @@ def build_risk(store: Store, pattern: Pattern, spread_rate: float,
         if doc:
             citations.append(Citation(
                 doc_id=doc.doc_id, doc_type=doc.doc_type, well=doc.well,
-                date=doc.date, quote=m.text,
+                date=doc.date, quote=m.text, page=quote_page(doc, m.text),
             ))
 
     return Risk(
@@ -245,16 +246,17 @@ def verify_brief(brief: RiskBrief, store: Store) -> dict[str, Any]:
 
 
 def build_provenance(store: Store, field_name: str, spread_rate: float, narrator_name: str,
-                     verification: dict[str, Any]) -> dict[str, Any]:
+                     verification: dict[str, Any], index_manifest_hash: str = "") -> dict[str, Any]:
     """Everything a reader needs to know what a brief was built from and
     whether to trust it: version, when, from which corpus and index, the
     thresholds behind the statistics, the spread rate, the narrator, and the
     citation verification result.
 
-    `corpus_hash` and `index_manifest_hash` are computed straight from the
-    store and the on-disk index files (see `Store.corpus_hash` and
-    `store.index_manifest_hash`); there is no separate per-field workspace
-    manifest yet, so this is what "the corpus" and "the index" mean today.
+    `corpus_hash` is computed straight from the store (`Store.corpus_hash`).
+    `index_manifest_hash` is the field's on-disk index files hashed together
+    (`workspace.index_files_hash`); this module has no workspace of its own,
+    so the caller (`cli.cmd_brief`) computes it and passes it in, empty when
+    the field has no index built yet.
     """
     from datetime import UTC, datetime
 
@@ -264,7 +266,7 @@ def build_provenance(store: Store, field_name: str, spread_rate: float, narrator
         "wellbrief_version": __version__,
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "corpus_hash": store.corpus_hash(field_name),
-        "index_manifest_hash": index_manifest_hash(store.db_path),
+        "index_manifest_hash": index_manifest_hash,
         "thresholds": {
             "min_lift": RISK_MIN_LIFT,
             "min_wells": RISK_MIN_WELLS,
