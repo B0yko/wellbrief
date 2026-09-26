@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Hashable, Iterable, Sequence
 
-# Pass tolerances per reported figure (spec: 0.05 h, $1, 0.001 for shares).
+# Pass tolerances per reported figure: 0.05 h, $1, 0.001 for shares.
 TOLERANCES = {"total_hours": 0.05, "total_cost_usd": 1.0, "avoidable_share": 0.001}
 # Float slack so a difference of exactly the tolerance passes.
 _EPS = 1e-9

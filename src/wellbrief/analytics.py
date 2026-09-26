@@ -40,7 +40,7 @@ from .store import Store
 
 # An overlap above this share of an interval pattern's own events with a
 # qualifying equipment pattern of the same code merges the interval pattern
-# into the equipment one (spec: "share more than half of their events").
+# into the equipment one.
 EVENT_OWNERSHIP_MERGE_SHARE = 0.5
 
 
@@ -403,9 +403,8 @@ def _resolve_ownership(interval: dict[tuple[str, ...], _Candidate],
     also covers then has that equipment pattern's events removed from its own
     bucket before it is finalised: the equipment pattern is preferred, so it
     keeps every event it qualified on, whatever share of the interval
-    candidate's own events that turns out to be. Above a half share (spec:
-    "share more than half of their events") the interval candidate is folded
-    into the equipment pattern entirely, events it did not share with it
+    candidate's own events that turns out to be. Above a half share, the
+    interval candidate is folded into the equipment pattern entirely, events it did not share with it
     included, rather than left as a rump of its own non-equipment events.
     At or below a half share, only the shared events move; the interval
     candidate is re-tested on what is left (same thresholds, same field-wide
@@ -476,8 +475,7 @@ def _finalize(cand: _Candidate) -> Pattern:
     """Build the reported `Pattern` from a (possibly merged) candidate.
 
     `hours_total` and `events` cover every distinct event the candidate now
-    owns, merges included (spec: "totals are computed over distinct
-    events"). The per-well figures (`wells_affected`, `mean`/`p90`,
+    owns, merges included. The per-well figures (`wells_affected`, `mean`/`p90`,
     `clean_wells`) stay scoped to the candidate's own exposed population, so
     a merge that absorbs an interval pattern reaching slightly outside an
     equipment category's own fleet cannot push `wells_affected` past
@@ -520,7 +518,7 @@ def find_patterns(
     thresholds, event ownership resolved, drivers filled in, largest total
     hours first.
 
-    `avoidable_only` (spec's "risk filters") excludes codes marked
+    `avoidable_only` excludes codes marked
     `avoidable = false` from ever becoming a pattern; `eval --no-risk-filters`
     passes `False`, together with `min_lift=0` and no equipment gate, to
     measure the filters against an unfiltered baseline. It never relaxes
