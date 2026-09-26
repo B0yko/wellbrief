@@ -10,7 +10,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Andrii Boiko" }]
-dependencies = []
+dependencies = [
+    # The floor excludes every pypdf release with a published advisory on the text-extraction
+    # path `readers.pdf.read_pdf` uses, as of 2026-09-26; a packaging-phase ADR records why.
+    "pypdf>=6.19.0",
+]
 
 [project.scripts]
 wellbrief = "wellbrief.cli:main"
