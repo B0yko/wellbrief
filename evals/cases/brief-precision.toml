@@ -1,0 +1,61 @@
+# Brief precision and classifier accuracy.
+#
+# brief-precision: the share of the risks a field's brief lists whose key the truth
+# file gives for a planted pattern (truth_patterns): G1 is STUCK_PIPE, FISHING or
+# WELLBORE_INSTABILITY in 17 1/2" Keldra Salt; G2 is LOST_CIRCULATION in 8 1/2" Vessra
+# Carbonate; G3 is DOWNHOLE_TOOL_FAILURE keyed on the PJ-3 tool, or an interval risk of
+# that code in 12 1/4"; G4 is RIG_REPAIR keyed on rig Vessra-3 (the matching rule is
+# the one described in extended.toml). Precision = matching risks / listed risks, per
+# listed risk: when one planted pattern is split over several listed risks (G3 as two
+# interval risks in two formations, say), each of them counts as planted. The distinct
+# patterns the matching risks cover are reported next to the precision. A brief that
+# lists no risk fails.
+#
+#   With the risk filters (the product's defaults): gated, target 0.75 per field,
+#   that is at least three in four listed risks are planted patterns. Orrindale plants
+#   up to four keys that can be listed (three G1 codes and G3), Vessra South three
+#   (G2, G3, G4), so 0.75 allows one background risk next to three real ones.
+#
+#   Without the filters: `wellbrief eval --suite brief-precision --no-risk-filters`
+#   builds these briefs with min_lift 0 and the unavoidable codes included, the
+#   baseline the filters are measured against. Under that flag the two cases are
+#   reported with their precision and without a pass or fail (status INFO), since the
+#   targets are set for the filtered brief; the flag changes no other brief of the run.
+#
+# classifier-accuracy: the product's practice / failure / neutral label against the
+# truth label, over every candidate sentence of the corpus (EOWR lessons and
+# recommendations, incident corrective actions). Only the sentence texts go to the
+# product. A sentence counts once per document it appears in: a recommendation that
+# 20 EOWRs repeat counts 20 times, and on the default seed the 357 candidate sentences
+# are 81 distinct texts. Labelling everything "practice" scores about 0.73 there.
+# Accuracy over distinct texts, failure recall and the number of failure sentences
+# called practice are reported next to it. Gated: accuracy at least 0.90, and practice
+# precision (the share of the sentences called practice that are practice) at least
+# 0.95, because a failure narrative called practice can become a quoted mitigation.
+#
+# Brief parameters: ORD-NEXT to 3,100 m, VSS-NEXT to 3,000 m, no rig, no MWD tool.
+
+suite = "brief-precision"
+
+[[case]]
+id = "bp-orrindale"
+category = "brief-precision"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+min_precision = 0.75
+
+[[case]]
+id = "bp-vessra-south"
+category = "brief-precision"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+min_precision = 0.75
+
+[[case]]
+id = "classifier-accuracy"
+category = "classifier-accuracy"
+gold_sql = "SELECT text, label FROM truth_sentences ORDER BY id"
+min_accuracy = 0.90
+min_practice_precision = 0.95

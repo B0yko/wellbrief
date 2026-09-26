@@ -1,0 +1,651 @@
+# Extended suite: what the specification expects of v0.1, written before the
+# fixes it measures. Cases are never removed or loosened after the first run;
+# every change is listed in evals/CHANGES.md with its reason.
+#
+# Gold answers and relevance labels are SQL over the truth database built from
+# the generator's `_truth.json` (never over the product's own database):
+#   truth_events     one row per NPT DETAIL entry of a daily report (DDR): doc_id,
+#                    well, field, date, code, hours, depth_m, section, formation, rig,
+#                    mwd, pattern (G1-G4 or NULL), variant, occurrence, part, parts.
+#                    An event that runs over several reports has one row per report.
+#   truth_docs       one row per document: doc_id, type (ddr | eowr | incident),
+#                    field, well, date, sections and formations (JSON lists); incident
+#                    reports also carry code, hours, depth_m, section, formation and
+#                    event_id (the first DDR entry of the event).
+#   truth_sentences  EOWR lessons and recommendations and incident corrective
+#                    actions: doc_id, kind, text, label (practice | failure | neutral),
+#                    patterns (JSON list), code.
+#   truth_wells      per well: rig, mwd, g1..g4 (affected | clean | out_of_scope).
+#   truth_patterns   one row per planted-pattern key: id, field, scope, driver, code,
+#                    section, formation, rig, mwd.
+#   truth_fields     one row per field: name, prefix, operator, rigs, mwd_tools, patterns.
+#
+# Pass rules per category (thresholds live in the harness, not in the cases):
+#   retrieval-precision  over the retrieval ranking of `question` (one entry per
+#                        document, best chunk): P@8 = |top 8 ∩ relevant| /
+#                        min(8, |relevant|) >= 0.5, and no document from another field
+#                        among the top 8 and the citations. MRR@8 is reported. The cut
+#                        is always 8. The reported means cover every case; a case that
+#                        cannot be scored counts as 0.
+#   arithmetic           the answer's `figure` within 0.05 h (total_hours), $1
+#                        (total_cost_usd) or 0.001 (avoidable_share) of `gold_sql`;
+#                        `spread_rate` is passed to the product and bound as :spread_rate.
+#   abstention           `precondition_sql` must confirm the empty scope on the truth
+#                        (else the case fails as broken); the answer carries no figures,
+#                        no citations, and the line
+#                        "No records in this workspace match that question."
+#                        When the product reports whether it abstained, it must say yes.
+#   brief-recall         the brief (field, well, td_m; no rig, no MWD) lists a risk that
+#                        matches a key of `pattern` in truth_patterns.
+#   brief-driver         the highest-ranked risk matching `pattern` names the driver the
+#                        truth gives for it (mud_weight | tool | rig), and a tool or rig
+#                        driver blames the tool or rig of the pattern's key (PJ-3 for G3,
+#                        Vessra-3 for G4).
+#   mitigation-precision every mitigation quoted anywhere in the brief is contained in a
+#                        truth sentence of its source document that is labelled practice
+#                        and that the truth relates to the risk (the risk's code, or a
+#                        planted pattern the risk matches); the source is either the EOWR
+#                        of a well that avoided the risk or an incident report with the
+#                        risk's code. "Avoided" is the miner's definition, computed from
+#                        the true events: for an interval risk, a well with a daily report
+#                        in the risk's section and formation and no event of its code there;
+#                        for an equipment risk, a well of the field on another rig (or MWD
+#                        tool) that did not have the event. For an equipment risk that
+#                        matches a planted pattern, "the event" is an event of that pattern:
+#                        same-code events on the other rig that belong to no pattern (the
+#                        drawworks repairs on Vessra-5 next to the G4 mud pump pattern) do
+#                        not disqualify a well. For any other equipment risk it is any event
+#                        of the risk's code. A brief that quotes no mitigation fails.
+#   mitigation-recall    the risks matching `pattern` quote at least one truth sentence
+#                        labelled practice that relates to `pattern`.
+#   parser-fidelity      the parsed ledger of `field` against `gold_sql` rows, matched on
+#                        doc_id + code + hours: precision = recall = 1.0 and total hours
+#                        within 0.05 h. Depth, section and formation agreement is reported.
+#   format-parity        the pdf / docx / csv rendering of the same corpus, ingested into a
+#                        workspace of its own, gives the same ledger rows as the txt
+#                        rendering, field by field over the whole workspace (rows filed
+#                        under no field or a wrong field count against it); every question
+#                        in `questions` is answered with at least one citation, and every
+#                        quote is verbatim in the txt rendering of the cited document (for
+#                        the csv rendering: a whole line of the ledger file).
+#
+# How a listed risk matches a planted-pattern key (brief cases): G1 and G2 keys need
+# an interval risk with the same code, hole section and formation. The G4 key needs
+# a risk keyed on rig Vessra-3. The G3 key accepts either form: a risk keyed on the
+# PJ-3 tool, or an interval risk with code DOWNHOLE_TOOL_FAILURE in the 12 1/4"
+# section of that field, whatever its formation (the hot hole spans formations).
+#
+# Brief parameters: ORD-NEXT to 3,100 m on Orrindale, VSS-NEXT to 3,000 m on Vessra
+# South, no rig, no MWD tool, default spread rate.
+
+suite = "extended"
+
+# ---------------------------------------------------------------------------
+# Retrieval precision: the 8 original questions
+# ---------------------------------------------------------------------------
+# A relevant document says something about what was asked: the daily reports that
+# carry the asked-about NPT entries (every part of an event that runs over reports),
+# the incident reports of that code, and the EOWRs whose lessons describe it. Practice
+# lessons and recommendations count only where the question asks what to do.
+#
+# EOWR NPT tables: every EOWR has an "NPT BREAKDOWN BY CODE" table with the well's
+# hours per code. It answers a question about one code in a field (no hole section,
+# formation, depth or kind of event narrower than the code), so for those questions
+# the EOWR of every well that had the code is relevant, and it answers a question about
+# one well's NPT. It is not counted for narrower questions, because the table is not
+# broken down by section, formation, depth or kind of event.
+
+# The pack-off reports, the stuck pipe incident reports (root cause section) and the
+# EOWR lessons that describe the pack-off (they state the salt mud weight and depth).
+[[case]]
+id = "rp-orrindale-stuck"
+category = "retrieval-precision"
+question = "What caused stuck pipe on Orrindale wells in the 17 1/2\" section?"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE' AND section = '17 1/2"'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'incident' AND field = 'Orrindale' AND code = 'STUCK_PIPE'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Orrindale' AND code = 'STUCK_PIPE' AND label = 'failure'
+"""
+
+# The reports with instability entries in Keldra Salt and the EOWR lessons that record
+# tight hole from salt creep (on wells with and without a later pack-off).
+[[case]]
+id = "rp-orrindale-salt"
+category = "retrieval-precision"
+question = "Show wellbore instability in Keldra Salt on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events
+ WHERE field = 'Orrindale' AND code = 'WELLBORE_INSTABILITY' AND formation = 'Keldra Salt'
+UNION SELECT doc_id FROM truth_sentences
+ WHERE field = 'Orrindale' AND kind = 'lesson' AND label = 'failure' AND text LIKE '%salt creep%'
+"""
+
+# Total losses only (partial losses below the carbonate top are a different event): the
+# reports that carry a total-loss entry, the incident reports of those events, and the
+# EOWR lessons that record the total losses.
+[[case]]
+id = "rp-vessra-losses"
+category = "retrieval-precision"
+question = "Total losses entering Vessra Carbonate on Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Vessra South' AND variant = 'g2_total'
+UNION SELECT d.doc_id FROM truth_docs d JOIN truth_events e ON e.event_id = d.event_id
+ WHERE d.type = 'incident' AND d.field = 'Vessra South' AND e.variant = 'g2_total'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND label = 'failure'
+"""
+
+# MWD failure reports in 12 1/4", their incident reports and the EOWR failure lessons.
+[[case]]
+id = "rp-mwd-failure"
+category = "retrieval-precision"
+question = "MWD tool failures in the 12 1/4\" section on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events
+ WHERE field = 'Orrindale' AND code = 'DOWNHOLE_TOOL_FAILURE' AND section = '12 1/4"'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'incident' AND field = 'Orrindale' AND code = 'DOWNHOLE_TOOL_FAILURE'
+UNION SELECT doc_id FROM truth_sentences
+ WHERE field = 'Orrindale' AND code = 'DOWNHOLE_TOOL_FAILURE' AND label = 'failure'
+"""
+
+# Mud pump repairs, not every rig repair: drawworks repairs are not mud pump problems.
+[[case]]
+id = "rp-rig-repair"
+category = "retrieval-precision"
+question = "Mud pump problems on Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Vessra South' AND variant = 'g4_pump'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Vessra South' AND code = 'RIG_REPAIR' AND label = 'failure'
+"""
+
+# The question asks what the EOWRs recommend: the Orrindale EOWRs that carry a
+# recommendation naming Keldra Salt.
+[[case]]
+id = "rp-lessons"
+category = "retrieval-precision"
+question = "What do the end of well reports recommend for Keldra Salt on Orrindale?"
+field = "Orrindale"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_sentences
+ WHERE field = 'Orrindale' AND kind = 'recommendation' AND text LIKE '%Keldra Salt%'
+"""
+
+# Cementing problem reports, the EOWR lessons on the leaking cement head, and the EOWRs
+# whose NPT table lists cementing hours (one code in a field).
+[[case]]
+id = "rp-cement"
+category = "retrieval-precision"
+question = "Cementing problems on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'CEMENT_ISSUE'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Orrindale' AND code = 'CEMENT_ISSUE'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'eowr' AND field = 'Orrindale'
+ AND well IN (SELECT well FROM truth_events WHERE field = 'Orrindale' AND code = 'CEMENT_ISSUE')
+"""
+
+# Weather stops: the daily reports that carry them and the EOWRs whose NPT table lists
+# weather hours (there is no lesson or incident report about weather).
+[[case]]
+id = "rp-weather"
+category = "retrieval-precision"
+question = "How much time was lost to weather on Vessra South?"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Vessra South' AND code = 'WAIT_ON_WEATHER'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'eowr' AND field = 'Vessra South'
+ AND well IN (SELECT well FROM truth_events WHERE field = 'Vessra South' AND code = 'WAIT_ON_WEATHER')
+"""
+
+# ---------------------------------------------------------------------------
+# Retrieval precision: planner variants
+# ---------------------------------------------------------------------------
+
+# The unit-spelling variants ask about codes that occur in every hole section, so only
+# a planner that reads the spelling can separate the relevant reports from the rest.
+# These codes have no lessons or incident reports, and the EOWR NPT table is not broken
+# down by section, so the relevant documents are the daily reports alone.
+
+# Unit spelling "17-1/2 in". Waiting on materials happens in every section.
+[[case]]
+id = "rp-section-dash-in"
+category = "retrieval-precision"
+question = "Waiting on materials in the 17-1/2 in section on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_events
+ WHERE field = 'Orrindale' AND code = 'WAIT_ON_MATERIALS' AND section = '17 1/2"'
+"""
+
+# Decimal unit spelling 12.25". Rig repairs (drawworks) happen in every section.
+[[case]]
+id = "rp-section-decimal"
+category = "retrieval-precision"
+question = "Rig repairs in the 12.25\" hole on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'RIG_REPAIR' AND section = '12 1/4"'
+"""
+
+# Unicode fraction 12¼" on the other field. HSE stops happen in every section.
+[[case]]
+id = "rp-section-unicode"
+category = "retrieval-precision"
+question = "HSE stops in 12¼\" hole on Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_events WHERE field = 'Vessra South' AND code = 'HSE_STOP' AND section = '12 1/4"'
+"""
+
+# Unit spelling "12 1/4 in". Hole cleaning happens in every section, so only the section
+# filter separates the relevant reports from the rest.
+[[case]]
+id = "rp-section-space-in"
+category = "retrieval-precision"
+question = "Hole cleaning problems in the 12 1/4 in section on Orrindale"
+field = "Orrindale"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'HOLE_CLEANING' AND section = '12 1/4"'
+"""
+
+# Lower-case well id. Relevant: the well's daily reports with NPT entries, its incident
+# reports and its EOWR (its NPT table answers the question).
+[[case]]
+id = "rp-well-lowercase"
+category = "retrieval-precision"
+question = "What non-productive time was booked on ord-108?"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE well = 'ORD-108'
+UNION SELECT doc_id FROM truth_docs WHERE well = 'ORD-108' AND type IN ('eowr', 'incident')
+"""
+
+# "around 2,650 m" read as within 100 m: loss reports with the entry depth in
+# 2,550-2,750 m, loss incident reports at that depth, and the EOWR lessons that record
+# the total losses (at the carbonate top, 2,660 m).
+[[case]]
+id = "rp-depth-around"
+category = "retrieval-precision"
+question = "Losses around 2,650 m on Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events
+ WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND depth_m BETWEEN 2550 AND 2750
+UNION SELECT doc_id FROM truth_docs
+ WHERE type = 'incident' AND field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND depth_m BETWEEN 2550 AND 2750
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND label = 'failure'
+"""
+
+# A depth-led question with no code: the reports with an NPT entry within 100 m of
+# 1,850 m, whatever the code (the intermediate casing point of Orrindale, where casing,
+# cementing and BOP test entries cluster). Only the depth separates them from the
+# field's other reports.
+[[case]]
+id = "rp-depth-led"
+category = "retrieval-precision"
+question = "What NPT was booked around 1,850 m on Orrindale?"
+field = "Orrindale"
+relevant_sql = """
+SELECT DISTINCT doc_id FROM truth_events WHERE field = 'Orrindale' AND depth_m BETWEEN 1750 AND 1950
+"""
+
+# Paraphrase "pack-off" for stuck pipe: the stuck pipe reports in every section, the
+# incident reports, the EOWR failure lessons and the EOWRs whose NPT table lists stuck
+# pipe hours (one code in a field).
+[[case]]
+id = "rp-paraphrase-pack-off"
+category = "retrieval-precision"
+question = "Pack-off events on Orrindale wells"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'incident' AND field = 'Orrindale' AND code = 'STUCK_PIPE'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Orrindale' AND code = 'STUCK_PIPE' AND label = 'failure'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'eowr' AND field = 'Orrindale'
+ AND well IN (SELECT well FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE')
+"""
+
+# Paraphrase "lost returns" for lost circulation: total and partial loss reports, the
+# loss incident reports and the EOWR loss lessons.
+[[case]]
+id = "rp-paraphrase-lost-returns"
+category = "retrieval-precision"
+question = "Lost returns in the carbonate on Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'incident' AND field = 'Vessra South' AND code = 'LOST_CIRCULATION'
+UNION SELECT doc_id FROM truth_sentences WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND label = 'failure'
+"""
+
+# "<Name> field" phrasing. Waiting on materials is recorded in the daily reports and in
+# the EOWR NPT tables (no lesson or incident report).
+[[case]]
+id = "rp-name-field"
+category = "retrieval-precision"
+question = "Waiting on materials in the Orrindale field"
+field = "Orrindale"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Orrindale' AND code = 'WAIT_ON_MATERIALS'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'eowr' AND field = 'Orrindale'
+ AND well IN (SELECT well FROM truth_events WHERE field = 'Orrindale' AND code = 'WAIT_ON_MATERIALS')
+"""
+
+# "field <Name>" phrasing. BOP test failures are recorded in the daily reports and in
+# the EOWR NPT tables (no lesson or incident report).
+[[case]]
+id = "rp-field-name"
+category = "retrieval-precision"
+question = "BOP test failures for field Vessra South"
+field = "Vessra South"
+relevant_sql = """
+SELECT doc_id FROM truth_events WHERE field = 'Vessra South' AND code = 'BOP_TEST_FAILURE'
+UNION SELECT doc_id FROM truth_docs WHERE type = 'eowr' AND field = 'Vessra South'
+ AND well IN (SELECT well FROM truth_events WHERE field = 'Vessra South' AND code = 'BOP_TEST_FAILURE')
+"""
+
+# ---------------------------------------------------------------------------
+# Arithmetic
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "ar-orrindale-instability-hours"
+category = "arithmetic"
+question = "How many hours of wellbore instability on Orrindale?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Orrindale' AND code = 'WELLBORE_INSTABILITY'"
+
+[[case]]
+id = "ar-orrindale-fishing-hours"
+category = "arithmetic"
+question = "How many hours of fishing on Orrindale?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Orrindale' AND code = 'FISHING'"
+
+[[case]]
+id = "ar-vessra-tool-failure-hours"
+category = "arithmetic"
+question = "How many hours of downhole tool failure on Vessra South?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Vessra South' AND code = 'DOWNHOLE_TOOL_FAILURE'"
+
+# Every rig repair of the field: mud pump and drawworks.
+[[case]]
+id = "ar-vessra-rig-repair-hours"
+category = "arithmetic"
+question = "How many hours of rig repair on Vessra South?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Vessra South' AND code = 'RIG_REPAIR'"
+
+# One well, every code.
+[[case]]
+id = "ar-well-total-ord-112"
+category = "arithmetic"
+question = "What was the total non-productive time on ORD-112?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE well = 'ORD-112'"
+
+# One hole section of one field, every code.
+[[case]]
+id = "ar-section-total-orrindale-12-1-4"
+category = "arithmetic"
+question = "Total NPT hours in the 12 1/4\" section on Orrindale?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Orrindale' AND section = '12 1/4\"'"
+
+# One formation of one field, every code.
+[[case]]
+id = "ar-formation-total-keldra-salt-orrindale"
+category = "arithmetic"
+question = "How many NPT hours were recorded in Keldra Salt on Orrindale?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Orrindale' AND formation = 'Keldra Salt'"
+
+# Avoidable share: every code except the three the taxonomy marks unavoidable
+# (weather, third-party standby, HSE stop).
+[[case]]
+id = "ar-avoidable-share-vessra-south"
+category = "arithmetic"
+question = "What share of the NPT on Vessra South was avoidable?"
+figure = "avoidable_share"
+gold_sql = """
+SELECT SUM(CASE WHEN code NOT IN ('WAIT_ON_WEATHER', 'THIRD_PARTY_STANDBY', 'HSE_STOP') THEN hours ELSE 0 END) / SUM(hours)
+FROM truth_events WHERE field = 'Vessra South'
+"""
+
+# Cost = hours / 24 x spread rate, at a rate the question states and the case passes.
+[[case]]
+id = "ar-cost-stuck-pipe-orrindale-60k"
+category = "arithmetic"
+question = "What did stuck pipe cost on Orrindale at a spread rate of $60,000 per day?"
+figure = "total_cost_usd"
+spread_rate = 60000
+gold_sql = "SELECT SUM(hours) / 24.0 * :spread_rate FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE'"
+
+# ---------------------------------------------------------------------------
+# Abstention
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "ab-unknown-well-ord-199"
+category = "abstention"
+question = "How much NPT did ORD-199 have?"
+precondition_sql = "SELECT COUNT(*) = 0 FROM truth_docs WHERE well = 'ORD-199'"
+
+# FISHING exists in the workspace (Orrindale), but not in Vessra South.
+[[case]]
+id = "ab-code-without-events-fishing-vessra-south"
+category = "abstention"
+question = "How many hours of fishing on Vessra South?"
+precondition_sql = "SELECT COUNT(*) = 0 FROM truth_events WHERE field = 'Vessra South' AND code = 'FISHING'"
+
+# Losses exist only in the 8 1/2" carbonate.
+[[case]]
+id = "ab-section-code-losses-12-1-4-vessra-south"
+category = "abstention"
+question = "Lost circulation in the 12 1/4\" section on Vessra South"
+precondition_sql = """
+SELECT COUNT(*) = 0 FROM truth_events
+ WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND section = '12 1/4"'
+"""
+
+# The PJ-3 tool is never run in the 8 1/2" section, so no MWD failure is filed there.
+[[case]]
+id = "ab-section-code-mwd-8-1-2-orrindale"
+category = "abstention"
+question = "MWD failures in the 8 1/2\" section on Orrindale"
+precondition_sql = """
+SELECT COUNT(*) = 0 FROM truth_events
+ WHERE field = 'Orrindale' AND code = 'DOWNHOLE_TOOL_FAILURE' AND section = '8 1/2"'
+"""
+
+# An invented field name that the corpus does not use.
+[[case]]
+id = "ab-unknown-field"
+category = "abstention"
+question = "How much NPT was recorded on the Yarrowvane field?"
+precondition_sql = "SELECT COUNT(*) = 0 FROM truth_fields WHERE name = 'Yarrowvane'"
+
+# An invented formation name that no document of the corpus lists. The planner is
+# expected to read "the Qelvit Dolomite" as a formation (a capitalised name followed by
+# a rock name such as Dolomite, Salt, Shale, Sand or Carbonate, the way the corpus
+# names its formations), find no such formation in the workspace, and abstain instead
+# of answering about stuck pipe on Orrindale in general.
+[[case]]
+id = "ab-unknown-formation"
+category = "abstention"
+question = "Stuck pipe in the Qelvit Dolomite on Orrindale"
+precondition_sql = """
+SELECT COUNT(*) = 0 FROM truth_docs d, json_each(d.formations) f WHERE f.value = 'Qelvit Dolomite'
+"""
+
+# ---------------------------------------------------------------------------
+# Brief quality: recall of the planted patterns
+# ---------------------------------------------------------------------------
+# The precondition makes sure the pattern has affected wells on this corpus.
+
+[[case]]
+id = "bq-recall-g1-orrindale"
+category = "brief-recall"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G1"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_wells WHERE field = 'Orrindale' AND g1 = 'affected'"
+
+[[case]]
+id = "bq-recall-g2-vessra-south"
+category = "brief-recall"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+pattern = "G2"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_wells WHERE field = 'Vessra South' AND g2 = 'affected'"
+
+[[case]]
+id = "bq-recall-g3-orrindale"
+category = "brief-recall"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G3"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_wells WHERE field = 'Orrindale' AND g3 = 'affected'"
+
+[[case]]
+id = "bq-recall-g4-vessra-south"
+category = "brief-recall"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+pattern = "G4"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_wells WHERE field = 'Vessra South' AND g4 = 'affected'"
+
+# ---------------------------------------------------------------------------
+# Brief quality: drivers (expected driver from truth_patterns.driver)
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "bq-driver-g1-mud-weight"
+category = "brief-driver"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G1"
+precondition_sql = "SELECT driver = 'mud_weight' FROM truth_patterns WHERE id = 'G1' AND field = 'Orrindale' LIMIT 1"
+
+[[case]]
+id = "bq-driver-g3-tool"
+category = "brief-driver"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G3"
+precondition_sql = "SELECT driver = 'tool' FROM truth_patterns WHERE id = 'G3' AND field = 'Orrindale' LIMIT 1"
+
+[[case]]
+id = "bq-driver-g4-rig"
+category = "brief-driver"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+pattern = "G4"
+precondition_sql = "SELECT driver = 'rig' FROM truth_patterns WHERE id = 'G4' AND field = 'Vessra South' LIMIT 1"
+
+# ---------------------------------------------------------------------------
+# Brief quality: mitigations
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "bq-mitigation-precision-orrindale"
+category = "mitigation-precision"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+
+[[case]]
+id = "bq-mitigation-precision-vessra-south"
+category = "mitigation-precision"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+
+[[case]]
+id = "bq-mitigation-recall-g1"
+category = "mitigation-recall"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G1"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_sentences WHERE field = 'Orrindale' AND label = 'practice' AND patterns LIKE '%\"G1\"%'"
+
+[[case]]
+id = "bq-mitigation-recall-g2"
+category = "mitigation-recall"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+pattern = "G2"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_sentences WHERE field = 'Vessra South' AND label = 'practice' AND patterns LIKE '%\"G2\"%'"
+
+[[case]]
+id = "bq-mitigation-recall-g3"
+category = "mitigation-recall"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+pattern = "G3"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_sentences WHERE field = 'Orrindale' AND label = 'practice' AND patterns LIKE '%\"G3\"%'"
+
+[[case]]
+id = "bq-mitigation-recall-g4"
+category = "mitigation-recall"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000
+pattern = "G4"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_sentences WHERE field = 'Vessra South' AND label = 'practice' AND patterns LIKE '%\"G4\"%'"
+
+# ---------------------------------------------------------------------------
+# Parser fidelity: the parsed ledger against the true NPT entries
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "pf-orrindale"
+category = "parser-fidelity"
+field = "Orrindale"
+gold_sql = "SELECT doc_id, code, hours, depth_m, section, formation FROM truth_events WHERE field = 'Orrindale'"
+
+[[case]]
+id = "pf-vessra-south"
+category = "parser-fidelity"
+field = "Vessra South"
+gold_sql = "SELECT doc_id, code, hours, depth_m, section, formation FROM truth_events WHERE field = 'Vessra South'"
+
+# ---------------------------------------------------------------------------
+# Format parity: the same corpus rendered as PDF, DOCX or an NPT ledger CSV
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "fp-pdf"
+category = "format-parity"
+format = "pdf"
+questions = ["What caused stuck pipe on Orrindale wells in the 17 1/2\" section?",
+             "Total losses entering Vessra Carbonate on Vessra South"]
+
+[[case]]
+id = "fp-docx"
+category = "format-parity"
+format = "docx"
+questions = ["What caused stuck pipe on Orrindale wells in the 17 1/2\" section?",
+             "Total losses entering Vessra Carbonate on Vessra South"]
+
+[[case]]
+id = "fp-csv"
+category = "format-parity"
+format = "csv"
+questions = ["How many hours of stuck pipe on Orrindale?",
+             "How many hours of lost circulation on Vessra South?"]

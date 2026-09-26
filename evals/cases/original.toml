@@ -1,0 +1,151 @@
+# The original 17-case harness, ported from the earlier prototype.
+#
+# Every question and expectation is the prototype's, with the fictional names
+# of this repository. What changed is where the gold answers come from: the
+# prototype asked the product's own ledger (`rollup()` and `store.npt()`),
+# which is circular; here every gold answer is SQL over the truth database
+# that `wellbrief.evals` builds from the generator's `_truth.json` (tables
+# truth_events, truth_docs, truth_sentences, truth_wells, truth_patterns).
+# Cited documents are resolved and quotes are checked against the generated
+# files, not against the product's store.
+#
+# Pass rules (unchanged from the prototype):
+#   retrieval          ask(question, top 8): at least one cited document; every cited
+#                      document from `field`; at least `min_hits` (default 1) cited
+#                      documents from a well in `gold_sql` (the wells that had the
+#                      asked-about code); a `doc_type` document among the citations when
+#                      set; no citation warnings from the product
+#   arithmetic         the answer's `figure` is within 0.05 h of `gold_sql`
+#   grounding          the questions of `from_cases`, asked with top 6: every citation
+#                      names a document of the corpus and its quote is verbatim in it
+#   discovery          the top pattern the product finds in `field` has this code and
+#                      formation (fixed expectation, as in the prototype)
+#   brief-citations    brief for `well` / `td_m`: every citation verbatim in its source
+#                      document, and the product's own verification passes
+#   brief-mitigations  at least one risk of that brief carries a written mitigation
+
+suite = "original"
+
+[[case]]
+id = "orrindale-stuck"
+category = "retrieval"
+question = "What caused stuck pipe on Orrindale wells in the 17 1/2\" section?"
+field = "Orrindale"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE'"
+
+[[case]]
+id = "orrindale-salt"
+category = "retrieval"
+question = "Show wellbore instability in Keldra Salt on Orrindale"
+field = "Orrindale"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Orrindale' AND code = 'WELLBORE_INSTABILITY'"
+
+[[case]]
+id = "vessra-losses"
+category = "retrieval"
+question = "Total losses entering Vessra Carbonate on Vessra South"
+field = "Vessra South"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION'"
+
+[[case]]
+id = "mwd-failure"
+category = "retrieval"
+question = "MWD tool failures in the 12 1/4\" section on Orrindale"
+field = "Orrindale"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Orrindale' AND code = 'DOWNHOLE_TOOL_FAILURE'"
+
+[[case]]
+id = "rig-repair"
+category = "retrieval"
+question = "Mud pump problems on Vessra South"
+field = "Vessra South"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Vessra South' AND code = 'RIG_REPAIR'"
+
+[[case]]
+id = "lessons"
+category = "retrieval"
+question = "What do the end of well reports recommend for Keldra Salt on Orrindale?"
+field = "Orrindale"
+doc_type = "eowr"
+
+[[case]]
+id = "cement"
+category = "retrieval"
+question = "Cementing problems on Orrindale"
+field = "Orrindale"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Orrindale' AND code = 'CEMENT_ISSUE'"
+
+[[case]]
+id = "weather"
+category = "retrieval"
+question = "How much time was lost to weather on Vessra South?"
+field = "Vessra South"
+gold_sql = "SELECT DISTINCT well FROM truth_events WHERE field = 'Vessra South' AND code = 'WAIT_ON_WEATHER'"
+
+[[case]]
+id = "arithmetic-orrindale-stuck_pipe"
+category = "arithmetic"
+question = "How many hours of stuck pipe on Orrindale?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE'"
+
+[[case]]
+id = "arithmetic-vessra-south-lost_circulation"
+category = "arithmetic"
+question = "How many hours of lost circulation on Vessra South?"
+figure = "total_hours"
+gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION'"
+
+[[case]]
+id = "grounding"
+category = "grounding"
+from_cases = ["orrindale-stuck", "orrindale-salt", "vessra-losses", "mwd-failure", "rig-repair", "lessons",
+              "cement", "weather"]
+top_k = 6
+
+# The dominant failure each field's history should surface on its own. The
+# precondition only confirms that the expectation is a planted pattern of this
+# corpus.
+[[case]]
+id = "discovery-orrindale"
+category = "discovery"
+field = "Orrindale"
+code = "STUCK_PIPE"
+formation = "Keldra Salt"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_events WHERE field = 'Orrindale' AND code = 'STUCK_PIPE' AND formation = 'Keldra Salt' AND pattern = 'G1'"
+
+[[case]]
+id = "brief-citations-orrindale"
+category = "brief-citations"
+field = "Orrindale"
+well = "Orrindale-NEXT"
+td_m = 3100
+
+[[case]]
+id = "brief-mitigations-orrindale"
+category = "brief-mitigations"
+field = "Orrindale"
+well = "Orrindale-NEXT"
+td_m = 3100
+
+[[case]]
+id = "discovery-vessra-south"
+category = "discovery"
+field = "Vessra South"
+code = "LOST_CIRCULATION"
+formation = "Vessra Carbonate"
+precondition_sql = "SELECT COUNT(*) > 0 FROM truth_events WHERE field = 'Vessra South' AND code = 'LOST_CIRCULATION' AND formation = 'Vessra Carbonate' AND pattern = 'G2'"
+
+[[case]]
+id = "brief-citations-vessra-south"
+category = "brief-citations"
+field = "Vessra South"
+well = "Vessra South-NEXT"
+td_m = 3100
+
+[[case]]
+id = "brief-mitigations-vessra-south"
+category = "brief-mitigations"
+field = "Vessra South"
+well = "Vessra South-NEXT"
+td_m = 3100
