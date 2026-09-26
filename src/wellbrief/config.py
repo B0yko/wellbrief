@@ -1,14 +1,22 @@
-"""Static configuration: NPT taxonomy, cost model, retrieval knobs.
+"""Built-in defaults: NPT taxonomy, cost model, retrieval knobs, parse labels and
+headings, detection headings, and CSV ledger columns.
 
-The values are illustrative defaults. Taxonomy, thresholds and retrieval
-knobs are constants in this version; the spread rate is set with
---spread-rate, and the workspace that holds the store and its indexes with
---workspace / WELLBRIEF_WORKSPACE and WELLBRIEF_HOME (see `workspace.py`).
+Everything in this module is a *default*: the value a workspace gets when its
+own `wellbrief.toml`, an `ingest --config` file, an environment variable or a
+CLI flag does not say otherwise. `settings.py` is the one place that reads
+those layers and resolves the precedence between them (CLI flags >
+environment > `ingest --config` / the ingested folder's `wellbrief.toml` >
+`<workspace>/wellbrief.toml` > the defaults below); every other module reads
+a `settings.Settings` (or one of its parts, passed down by its caller) rather
+than importing a constant from here directly, except where a value genuinely
+never varies by site (the depth-band width used to *rank* a question's depth
+preference, not to configure a report template, for example).
 """
 
 from __future__ import annotations
 
 import os
+from typing import Any
 
 # --------------------------------------------------------------------------
 # NPT taxonomy
@@ -18,7 +26,7 @@ import os
 # change can realistically prevent; weather and third party standby cannot be
 # engineered away, so they are kept out of the avoidable totals on purpose.
 
-NPT_CODES: dict[str, dict] = {
+NPT_CODES: dict[str, dict[str, Any]] = {
     "STUCK_PIPE": {"label": "Stuck pipe / pack-off", "avoidable": True, "family": "hole"},
     "LOST_CIRCULATION": {"label": "Lost circulation", "avoidable": True, "family": "hole"},
     "WELLBORE_INSTABILITY": {"label": "Wellbore instability", "avoidable": True, "family": "hole"},
@@ -68,9 +76,9 @@ HOLE_SECTIONS = ['26"', '17 1/2"', '12 1/4"', '8 1/2"']
 # NPT code (the mitigation miner's relevance test; see `miner._relevant`). Matched on
 # word boundaries against the sentence text alone; an interval risk also
 # requires the sentence, or an incident's own recorded section and
-# formation, to name the place in the well (`miner._relevant`). A constant
-# for now, like the taxonomy above; it becomes `[taxonomy.keywords]` once
-# TOML configuration lands, falling back to these defaults.
+# formation, to name the place in the well (`miner._relevant`). The default
+# for `[taxonomy.keywords]`; a site's own table replaces a code's whole list,
+# it does not add to this one.
 TAXONOMY_KEYWORDS: dict[str, list[str]] = {
     "STUCK_PIPE": ["pack-off", "mud weight", "sg", "salt", "trip"],
     "FISHING": ["fish", "jar", "bha"],
@@ -93,6 +101,89 @@ TAXONOMY_KEYWORDS: dict[str, list[str]] = {
 SYNTHETIC_FOOTER = (
     "Synthetic demonstration document. Operator, fields, wells, rigs and vendors are fictional."
 )
+
+# A site's own spelling of an NPT code ("SP", "LC", "DH-TOOL") mapped to the taxonomy
+# (`STUCK_PIPE`, `LOST_CIRCULATION`, `DOWNHOLE_TOOL_FAILURE`); matched case-insensitively
+# once the code is folded the same way an unmapped one is (`ingest._normalise_code`:
+# non-alphanumeric runs become a single underscore, upper-cased). The default for
+# `[taxonomy.aliases]` is empty: a code that is not in `NPT_CODES` and not aliased becomes
+# `OTHER`, the built-in fallback every alias table still falls back to.
+DEFAULT_TAXONOMY_ALIASES: dict[str, str] = {}
+
+# --------------------------------------------------------------------------
+# Parse labels and section headings
+# --------------------------------------------------------------------------
+# The label text (before the colon) each parser looks for. A site that writes
+# its daily reports, end-of-well reports or incident reports with different
+# labels or section headings maps them with `[parse.ddr.labels]`,
+# `[parse.eowr.sections]` and `[parse.incident.sections]`; these are the
+# canonical template's own labels, used when a site's `wellbrief.toml` does
+# not override them (or there is none).
+
+# `[parse.ddr.labels]`: the header fields shared by every daily report, plus
+# the five fields of one NPT DETAIL entry (`npt_*`). A canonical value here
+# never collides with another: the header's own "Formation at TD" and an NPT
+# entry's "Formation" are two different keys (`formation_at_td`, `npt_formation`)
+# precisely so a site can rename one without the other.
+DEFAULT_DDR_LABELS: dict[str, str] = {
+    "depth_at_start": "Depth at start",
+    "depth_at_end": "Depth at end",
+    "progress": "Progress",
+    "hole_section": "Hole section",
+    "formation_at_td": "Formation at TD",
+    "weight": "Weight",
+    "ecd": "ECD",
+    "bht": "Static BHT estimate",
+    "mwd": "MWD",
+    "productive_time": "Productive time",
+    "non_productive_time": "Non-productive time",
+    "npt_code": "Code",
+    "npt_hours": "Hours",
+    "npt_depth": "Depth",
+    "npt_formation": "Formation",
+    "npt_description": "Description",
+}
+
+# `[parse.eowr.sections]`: the heading each block starts at, written either with
+# its canonical leading number ("3. NPT BREAKDOWN BY CODE") or bare ("NPT
+# BREAKDOWN BY CODE", "LESSONS"): `parse.parse_eowr` accepts an optional
+# "<number>. " prefix on any configured heading, so a site need not renumber
+# its own template to match this one.
+DEFAULT_EOWR_SECTIONS: dict[str, str] = {
+    "npt_by_code": "NPT BREAKDOWN BY CODE",
+    "lessons": "LESSONS LEARNED",
+    "recommendations": "RECOMMENDATIONS FOR FUTURE WELLS",
+}
+
+# `[parse.incident.sections]`: same convention as `DEFAULT_EOWR_SECTIONS`.
+DEFAULT_INCIDENT_SECTIONS: dict[str, str] = {
+    "root_cause": "ROOT CAUSE",
+    "corrective_actions": "CORRECTIVE ACTIONS",
+}
+
+# --------------------------------------------------------------------------
+# Document-type detection
+# --------------------------------------------------------------------------
+# `[detect.headings]`: document type -> the exact first-lines-of-file heading
+# (`detect.py` scans the first few lines) that names it; a site whose reports
+# open with a different line maps it here. The filename prefix fallback
+# (`DDR-`, `EOWR-`, `INC-`) is not configurable: it is a fallback for a
+# heading that is missing or unrecognised, not a template convention.
+DEFAULT_DETECT_HEADINGS: dict[str, str] = {
+    "ddr": "DAILY DRILLING REPORT",
+    "eowr": "END OF WELL REPORT",
+    "incident": "WELL OPERATIONS INCIDENT REPORT",
+}
+
+# --------------------------------------------------------------------------
+# CSV ledger columns
+# --------------------------------------------------------------------------
+# `[csv.columns]` (+ optional `date_format`): maps a logical ledger column
+# (`readers.csvledger.LOGICAL_COLUMNS`) to the header a site's own NPT ledger
+# CSV uses. Empty by default: `read_ledger` already looks up every unmapped
+# logical column under its own name (`well`, `date`, `code`, `hours`, ...).
+DEFAULT_CSV_COLUMNS: dict[str, str] = {}
+DEFAULT_CSV_DATE_FORMAT: str | None = None
 
 # --------------------------------------------------------------------------
 # Cost model

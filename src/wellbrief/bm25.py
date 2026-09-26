@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from typing import Any
 
 from .config import BM25_B, BM25_K1
 from .text import tokenize
@@ -36,8 +37,8 @@ class BM25Index:
         self.avgdl = (sum(self.doc_len) / len(self.doc_len)) if self.doc_len else 0.0
 
     @classmethod
-    def build(cls, items: list[tuple[str, str]]) -> BM25Index:
-        idx = cls()
+    def build(cls, items: list[tuple[str, str]], k1: float = BM25_K1, b: float = BM25_B) -> BM25Index:
+        idx = cls(k1=k1, b=b)
         for doc_id, text in items:
             idx.add(doc_id, text)
         idx.finalise()
@@ -80,7 +81,7 @@ class BM25Index:
         return [(self.doc_ids[i], round(s, 6)) for i, s in ranked[:top_k]]
 
     # -- persistence ------------------------------------------------------
-    def to_json(self) -> dict:
+    def to_json(self) -> dict[str, Any]:
         return {
             "k1": self.k1,
             "b": self.b,
@@ -91,7 +92,7 @@ class BM25Index:
         }
 
     @classmethod
-    def from_json(cls, blob: dict) -> BM25Index:
+    def from_json(cls, blob: dict[str, Any]) -> BM25Index:
         idx = cls(k1=blob.get("k1", BM25_K1), b=blob.get("b", BM25_B))
         idx.doc_ids = list(blob["doc_ids"])
         idx.doc_len = list(blob["doc_len"])

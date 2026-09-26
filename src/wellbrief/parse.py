@@ -25,27 +25,58 @@ Layout conventions the parsers rely on:
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .config import NPT_CODES, SYNTHETIC_FOOTER
+from .config import (
+    DEFAULT_DDR_LABELS,
+    DEFAULT_EOWR_SECTIONS,
+    DEFAULT_INCIDENT_SECTIONS,
+    NPT_CODES,
+    SYNTHETIC_FOOTER,
+)
 from .models import Document, NptEvent
 from .text import canonical_section, normalise
 
 _LABEL = r"[ \t]*{}[ \t]*:[ \t]*(.+)"
 
-# Labels of one NPT DETAIL entry in the canonical daily report template.
-NPT_ENTRY_LABELS: dict[str, str] = {
-    "code": "Code",
-    "hours": "Hours",
-    "depth": "Depth",
-    "formation": "Formation",
-    "description": "Description",
-}
+# The five fields of one NPT DETAIL entry, as keys of `DEFAULT_DDR_LABELS` (`npt_code` etc.);
+# `_npt_entry_labels` turns the `[parse.ddr.labels]` shape into the flat shape
+# `parse_npt_blocks` (and, before configuration, this module alone) works with.
+_NPT_ENTRY_FIELDS = ("code", "hours", "depth", "formation", "description")
 
 # A section heading: a line in capitals at the left margin.
 _HEADING = re.compile(r"^[A-Z][A-Z0-9 ()/&.-]*$")
 _NUMBERED_ITEM = re.compile(r"^[ \t]{0,3}\d+\.[ \t]+")
 _BULLET_ITEM = re.compile(r"^[ \t]{0,3}[-*][ \t]+")
+
+
+def _npt_entry_labels(ddr_labels: Mapping[str, str]) -> dict[str, str]:
+    return {field: ddr_labels[f"npt_{field}"] for field in _NPT_ENTRY_FIELDS}
+
+
+_CODE_CLEAN = re.compile(r"[^A-Za-z0-9]+")
+
+
+def clean_code_key(raw: str) -> str:
+    """A code (a parsed NPT entry's, a site's alias key, or a CSV ledger row's), folded to a
+    canonical lookup key: non-alphanumeric runs become one underscore, upper-cased."""
+    return _CODE_CLEAN.sub("_", raw.strip()).strip("_").upper()
+
+
+def resolve_npt_code(raw: str, aliases: Mapping[str, str] | None = None) -> str:
+    """A site's own spelling of an NPT code, resolved to the built-in taxonomy: the taxonomy
+    code itself (however it is punctuated or cased), else a `[taxonomy.aliases]` entry (matched
+    the same folded way, so `"DH-TOOL"` and `dh_tool` both find an alias keyed `"DH-TOOL"`), else
+    `"OTHER"`, the catch-all every alias table still falls back to."""
+    cleaned = clean_code_key(raw)
+    if cleaned in NPT_CODES:
+        return cleaned
+    if aliases:
+        by_key = {clean_code_key(k): v for k, v in aliases.items()}
+        if cleaned in by_key:
+            return by_key[cleaned]
+    return "OTHER"
 
 
 def strip_footer(text: str) -> str:
@@ -79,7 +110,7 @@ def _items(block: str, marker: re.Pattern[str]) -> list[str]:
 
 
 def _label(text: str, label: str) -> str | None:
-    m = re.search(_LABEL.format(label), text, re.I)
+    m = re.search(_LABEL.format(re.escape(label)), text, re.I)
     return m.group(1).strip() if m else None
 
 
@@ -114,45 +145,56 @@ def parse_header(text: str) -> dict[str, Any]:
     return out
 
 
-def parse_ddr(text: str) -> dict[str, Any]:
-    """Pull the numeric spine out of a daily drilling report."""
+def parse_ddr(text: str, labels: Mapping[str, str] | None = None,
+             aliases: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Pull the numeric spine out of a daily drilling report.
+
+    `labels` (`[parse.ddr.labels]`, default `DEFAULT_DDR_LABELS`) is the label text each header
+    field and NPT entry field is read under; `aliases` (`[taxonomy.aliases]`) resolves a site's
+    own NPT code spelling to the built-in taxonomy (`resolve_npt_code`).
+    """
+    labels = labels or DEFAULT_DDR_LABELS
     text = strip_footer(normalise(text))
     out = parse_header(text)
 
-    out["depth_start_m"] = _num(_label(text, "Depth at start"))
-    out["depth_end_m"] = _num(_label(text, "Depth at end"))
-    out["progress_m"] = _num(_label(text, "Progress"))
+    out["depth_start_m"] = _num(_label(text, labels["depth_at_start"]))
+    out["depth_end_m"] = _num(_label(text, labels["depth_at_end"]))
+    out["progress_m"] = _num(_label(text, labels["progress"]))
 
-    raw_section = _label(text, "Hole section")
+    raw_section = _label(text, labels["hole_section"])
     out["hole_section"] = canonical_section(raw_section) if raw_section else None
 
-    formation = _label(text, r"Formation at TD")
+    formation = _label(text, labels["formation_at_td"])
     if formation:
         out["formation"] = re.sub(r"\s*\(.*\)\s*$", "", formation).strip()
 
-    out["mud_weight_sg"] = _num(_label(text, "Weight"))
-    out["ecd_sg"] = _num(_label(text, "ECD"))
-    out["bht_c"] = _num(_label(text, "Static BHT estimate"))
-    out["mwd"] = _label(text, "MWD")
-    out["productive_hours"] = _num(_label(text, "Productive time"))
-    out["npt_hours"] = _num(_label(text, "Non-productive time"))
+    out["mud_weight_sg"] = _num(_label(text, labels["weight"]))
+    out["ecd_sg"] = _num(_label(text, labels["ecd"]))
+    out["bht_c"] = _num(_label(text, labels["bht"]))
+    out["mwd"] = _label(text, labels["mwd"])
+    out["productive_hours"] = _num(_label(text, labels["productive_time"]))
+    out["npt_hours"] = _num(_label(text, labels["non_productive_time"]))
 
     m = re.search(r"Flow\s*:\s*.*?/\s*(\d+)\s*gpm", text, re.I)
     if m:
         out["flow_gpm"] = float(m.group(1))
 
-    out["npt"] = parse_npt_blocks(text)
+    out["npt"] = parse_npt_blocks(text, labels=_npt_entry_labels(labels), aliases=aliases)
     return out
 
 
-def parse_npt_blocks(text: str, labels: dict[str, str] | None = None) -> list[dict[str, Any]]:
+def parse_npt_blocks(text: str, labels: Mapping[str, str] | None = None,
+                     aliases: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     """Read the repeating entries of NPT DETAIL.
 
     Each entry starts at its Code line and needs an Hours line. Depth and
     Formation are optional (None when the entry has no such line).
-    A line that is not a label line continues the value above it.
+    A line that is not a label line continues the value above it. `labels`
+    maps the flat entry fields (`code`, `hours`, `depth`, `formation`,
+    `description`) to their label text; `aliases` resolves a site's own NPT
+    code spelling (`resolve_npt_code`).
     """
-    labels = labels or NPT_ENTRY_LABELS
+    labels = labels or _npt_entry_labels(DEFAULT_DDR_LABELS)
     text = strip_footer(normalise(text))
     start = re.search(r"^NPT DETAIL\s*$", text, re.M)
     if not start:
@@ -188,12 +230,11 @@ def parse_npt_blocks(text: str, labels: dict[str, str] | None = None) -> list[di
 
     events: list[dict[str, Any]] = []
     for raw in raw_entries:
-        code = raw.get("code", "").strip().upper()
+        raw_code = raw.get("code", "")
         hours = _num(raw.get("hours"))
-        if not code or hours is None:
+        if not raw_code.strip() or hours is None:
             continue
-        if code not in NPT_CODES:
-            code = "OTHER"
+        code = resolve_npt_code(raw_code, aliases)
         formation = raw.get("formation")
         if formation is not None:
             formation = re.sub(r"\s*\(.*\)\s*$", "", formation).strip() or None
@@ -207,30 +248,63 @@ def parse_npt_blocks(text: str, labels: dict[str, str] | None = None) -> list[di
     return events
 
 
-def parse_eowr(text: str) -> dict[str, Any]:
-    """End of well report: totals plus the numbered lessons."""
+def _section_blocks(text: str, headings: Sequence[str]) -> dict[str, str]:
+    """Split `text` into the blocks that start at each of `headings`.
+
+    A heading may carry its canonical-template leading counter ("3. NPT BREAKDOWN BY CODE")
+    or be written bare ("NPT BREAKDOWN BY CODE"), on a line of its own. A block runs from just
+    after its heading line to whichever other configured heading is found next in `text`
+    (headings need not appear in the order `headings` lists them), or to the end of `text` for
+    the last one. A heading not found in `text` has no entry in the result.
+    """
+    positions: list[tuple[int, int, str]] = []
+    for heading in headings:
+        m = re.search(rf"^(?:\d+\.\s*)?{re.escape(heading)}[ \t]*$", text, re.M | re.I)
+        if m:
+            positions.append((m.start(), m.end(), heading))
+    positions.sort()
+    blocks: dict[str, str] = {}
+    for i, (_, end, heading) in enumerate(positions):
+        stop = positions[i + 1][0] if i + 1 < len(positions) else len(text)
+        blocks[heading] = text[end:stop]
+    return blocks
+
+
+def parse_eowr(text: str, sections: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """End of well report: totals plus the numbered lessons.
+
+    `sections` (`[parse.eowr.sections]`: `npt_by_code`, `lessons`, `recommendations`) is the
+    heading text each block starts at, default `DEFAULT_EOWR_SECTIONS`.
+    """
+    sections = sections or DEFAULT_EOWR_SECTIONS
     text = strip_footer(normalise(text))
     out = parse_header(text)
     out["days_on_well"] = _num(_label(text, "Days on well"))
     out["td_m"] = _num(_label(text, "Total depth"))
     out["total_npt_hours"] = _num(_label(text, "Non-productive time"))
 
+    blocks = _section_blocks(text, (sections["npt_by_code"], sections["lessons"],
+                                    sections["recommendations"]))
+
     by_code: dict[str, float] = {}
-    block = re.search(r"3\. NPT BREAKDOWN BY CODE(.*?)(?:\n4\.|\Z)", text, re.S)
+    block = blocks.get(sections["npt_by_code"])
     if block:
-        for m in re.finditer(r"^\s*([A-Z_]{3,})\s+([\d.]+)\s*h\s*$", block.group(1), re.M):
+        for m in re.finditer(r"^\s*([A-Z_]{3,})\s+([\d.]+)\s*h\s*$", block, re.M):
             by_code[m.group(1)] = float(m.group(2))
     out["npt_by_code"] = by_code
 
-    block = re.search(r"4\. LESSONS LEARNED(.*?)(?:\n5\.|\Z)", text, re.S)
-    out["lessons"] = _items(block.group(1), _NUMBERED_ITEM) if block else []
+    lessons = blocks.get(sections["lessons"])
+    out["lessons"] = _items(lessons, _NUMBERED_ITEM) if lessons else []
 
-    block = re.search(r"5\. RECOMMENDATIONS FOR FUTURE WELLS(.*?)(?:\n\d+\.\s|\Z)", text, re.S)
-    out["recommendations"] = _items(block.group(1), _BULLET_ITEM) if block else []
+    recommendations = blocks.get(sections["recommendations"])
+    out["recommendations"] = _items(recommendations, _BULLET_ITEM) if recommendations else []
     return out
 
 
-def parse_incident(text: str) -> dict[str, Any]:
+def parse_incident(text: str, sections: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """`sections` (`[parse.incident.sections]`: `root_cause`, `corrective_actions`), default
+    `DEFAULT_INCIDENT_SECTIONS`."""
+    sections = sections or DEFAULT_INCIDENT_SECTIONS
     text = strip_footer(normalise(text))
     out = parse_header(text)
     m = re.search(r"Classification:\s*([A-Z_]+)\s+Lost time:\s*([\d.]+)", text, re.I)
@@ -245,25 +319,31 @@ def parse_incident(text: str) -> dict[str, Any]:
     m = re.search(r"Severity:\s*(\w+)", text, re.I)
     if m:
         out["severity"] = m.group(1)
-    block = re.search(r"4\. ROOT CAUSE\s*\n(.*?)(?:\n5\.|\Z)", text, re.S)
-    if block:
-        out["root_cause"] = " ".join(block.group(1).split())
-    block = re.search(r"5\. CORRECTIVE ACTIONS(.*?)(?:\n\d+\.\s|\Z)", text, re.S)
-    out["corrective_actions"] = _items(block.group(1), _BULLET_ITEM) if block else []
+
+    blocks = _section_blocks(text, (sections["root_cause"], sections["corrective_actions"]))
+    root_cause = blocks.get(sections["root_cause"])
+    if root_cause:
+        out["root_cause"] = " ".join(root_cause.split())
+    actions = blocks.get(sections["corrective_actions"])
+    out["corrective_actions"] = _items(actions, _BULLET_ITEM) if actions else []
     return out
 
 
-def parse(doc: Document) -> dict[str, Any]:
+def parse(doc: Document, ddr_labels: Mapping[str, str] | None = None,
+         eowr_sections: Mapping[str, str] | None = None,
+         incident_sections: Mapping[str, str] | None = None,
+         aliases: Mapping[str, str] | None = None) -> dict[str, Any]:
     if doc.doc_type == "ddr":
-        return parse_ddr(doc.text)
+        return parse_ddr(doc.text, labels=ddr_labels, aliases=aliases)
     if doc.doc_type == "eowr":
-        return parse_eowr(doc.text)
+        return parse_eowr(doc.text, sections=eowr_sections)
     if doc.doc_type == "incident":
-        return parse_incident(doc.text)
+        return parse_incident(doc.text, sections=incident_sections)
     return parse_header(doc.text)
 
 
-def npt_events(doc: Document) -> list[NptEvent]:
+def npt_events(doc: Document, ddr_labels: Mapping[str, str] | None = None,
+              aliases: Mapping[str, str] | None = None) -> list[NptEvent]:
     """Turn one document into zero or more NPT rows.
 
     Depth and formation come from the entry itself when it carries them, and
@@ -271,7 +351,7 @@ def npt_events(doc: Document) -> list[NptEvent]:
     """
     if doc.doc_type != "ddr":
         return []
-    p = parse_ddr(doc.text)
+    p = parse_ddr(doc.text, labels=ddr_labels, aliases=aliases)
     events: list[NptEvent] = []
     for e in p.get("npt", []):
         depth = e.get("depth_m")

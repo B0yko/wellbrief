@@ -58,7 +58,11 @@ class FileRecord:
     `doc_ids` is a list because one file can yield more than one document (a
     CSV ledger row becomes its own citable one-line document); `reason` is
     set when `status` is not `"ingested"` (for example a skipped or unreadable
-    file), for the ingest coverage report.
+    file), for the ingest coverage report. `parse_config` is the settings this
+    file was parsed with (`settings.Settings.ingest_parse_config`): labels,
+    section headings, detection headings, taxonomy aliases and CSV column
+    mapping, recorded so a later re-parse of the same file is reproducible
+    even if the workspace's own `wellbrief.toml` has since changed.
     """
 
     path: str
@@ -69,6 +73,7 @@ class FileRecord:
     status: str
     reason: str | None = None
     field_name: str = ""
+    parse_config: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

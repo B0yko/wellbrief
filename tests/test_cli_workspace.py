@@ -179,3 +179,74 @@ def test_brief_exits_3_when_a_field_has_ledger_rows_but_no_ddrs(
     assert cli.main(["brief", "--field", "Orrindale", "--well", "ORD-NEXT", "--td", "3100"]) == 3
     err = capsys.readouterr().err
     assert "no daily drilling reports" in err
+
+
+# ---------------------------------------------------------------------------
+# Configuration: workspace wellbrief.toml, ingest --config, and the settings
+# CLI/env precedence.
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_with_a_missing_config_file_exits_cleanly_with_no_traceback(
+        home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = tmp_path / "empty"
+    folder.mkdir()
+    assert cli.main(["ingest", str(folder), "--config", str(tmp_path / "no-such.toml")]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("wellbrief: ")
+    assert "Traceback" not in err
+
+
+def test_a_malformed_workspace_toml_exits_cleanly_on_every_command_that_reads_settings(
+        home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    ws = home / "default"
+    ws.mkdir(parents=True)
+    (ws / "wellbrief.toml").write_text("[risk]\nmin_lft = 2.0\n", encoding="utf-8")
+
+    assert cli.main(["npt"]) == 2
+    err = capsys.readouterr().err
+    assert "wellbrief.toml" in err and "min_lft" in err and "Traceback" not in err
+
+
+def test_workspace_toml_retrieval_settings_flow_through_ask(
+        home: Path, corpus_dir: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    """`[retrieval] top_k` in the workspace's own `wellbrief.toml` reaches `qa.ask` when `ask`
+    is not given its own `--top-k`, and an explicit `--top-k` still wins over it."""
+    ws = home / "default"
+    ws.mkdir(parents=True)
+    (ws / "wellbrief.toml").write_text("[retrieval]\ntop_k = 3\n", encoding="utf-8")
+    assert cli.main(["ingest", str(corpus_dir)]) == 0
+    capsys.readouterr()
+
+    captured: dict[str, object] = {}
+    real_ask = cli.ask_qa
+
+    def spy(question: str, store: object, searcher: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return real_ask(question, store, searcher, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(cli, "ask_qa", spy)
+
+    assert cli.main(["ask", "What went wrong on ORD-105?"]) == 0
+    assert captured["top_k"] == 3
+
+    assert cli.main(["ask", "What went wrong on ORD-105?", "--top-k", "9"]) == 0
+    assert captured["top_k"] == 9
+
+
+def test_spread_rate_env_var_is_used_when_no_flag_is_given(
+        home: Path, monkeypatch: pytest.MonkeyPatch, corpus_dir: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["ingest", str(corpus_dir)]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setenv("WELLBRIEF_SPREAD_RATE_USD_PER_DAY", "60000")
+    assert cli.main(["--json", "npt"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["spread_rate_usd_per_day"] == 60000.0
+
+    # an explicit --spread-rate still wins over the environment variable
+    assert cli.main(["--json", "--spread-rate", "12000", "npt"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["spread_rate_usd_per_day"] == 12000.0

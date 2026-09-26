@@ -41,9 +41,12 @@ very problem it prevents.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from .config import TAXONOMY_KEYWORDS
+from .models import Document
 from .parse import parse_eowr, parse_incident
 from .quotes import verbatim_quote
 from .store import Store
@@ -142,17 +145,25 @@ def classify_many(sentences: list[str]) -> list[str]:
 # Relevance: the code's keywords, plus formation or section for an interval risk
 # ---------------------------------------------------------------------------
 
-_KEYWORD_RX: dict[str, tuple[re.Pattern[str], ...]] = {
-    code: tuple(_phrase(k) for k in keywords) for code, keywords in TAXONOMY_KEYWORDS.items()
-}
+_KeywordPatterns = dict[str, tuple[re.Pattern[str], ...]]
 
 
-def _keyword_hit(text: str, code: str) -> bool:
-    return any(rx.search(text) for rx in _KEYWORD_RX.get(code, ()))
+def _compile_keywords(keywords: Mapping[str, list[str]]) -> _KeywordPatterns:
+    return {code: tuple(_phrase(k) for k in words) for code, words in keywords.items()}
 
 
-def _keyword_score(text: str, code: str) -> int:
-    return sum(1 for rx in _KEYWORD_RX.get(code, ()) if rx.search(text))
+#: The default, built from `TAXONOMY_KEYWORDS` (`config.py`); a site's own `[taxonomy.keywords]`
+#: (`settings.TaxonomySettings.keywords`) is compiled fresh per call rather than cached here,
+#: since it varies by workspace and this only ever runs a handful of times per `ask` or `brief`.
+_DEFAULT_KEYWORD_PATTERNS: _KeywordPatterns = _compile_keywords(TAXONOMY_KEYWORDS)
+
+
+def _keyword_hit(text: str, code: str, patterns: _KeywordPatterns) -> bool:
+    return any(rx.search(text) for rx in patterns.get(code, ()))
+
+
+def _keyword_score(text: str, code: str, patterns: _KeywordPatterns) -> int:
+    return sum(1 for rx in patterns.get(code, ()) if rx.search(text))
 
 
 def _names_formation_or_section(text: str, hole_section: str, formation: str) -> bool:
@@ -165,11 +176,11 @@ def _names_formation_or_section(text: str, hole_section: str, formation: str) ->
     return False
 
 
-def _relevant(text: str, code: str, hole_section: str, formation: str) -> bool:
+def _relevant(text: str, code: str, hole_section: str, formation: str, patterns: _KeywordPatterns) -> bool:
     """The sentence's own text names the code's subject and, for an interval
     risk, the place in the well (for an equipment risk the keyword
     match alone is enough)."""
-    if not _keyword_hit(text, code):
+    if not _keyword_hit(text, code, patterns):
         return False
     if not (hole_section or formation):
         return True
@@ -251,51 +262,84 @@ def exposed_clean_wells(store: Store, field_name: str | None, code: str,
     return exposed - had
 
 
-def _eowr_candidates(store: Store, scope: MinerScope) -> list[_Candidate]:
+def _eowr_meta(doc: Document) -> Mapping[str, Any]:
+    """`doc.meta` when it already carries `parse.parse_eowr`'s output -- every document
+    `ingest_folder` produced, parsed once at ingest time with that file's own
+    `[parse.eowr.sections]` (a site's own `wellbrief.toml` or `ingest --config`, recorded per
+    file). `"lessons"` is a key `parse_eowr` always sets (to `[]` when there is nothing to find),
+    so its absence means this `Document` was built directly (a unit test's hand-written store
+    row, not a real ingest), and is the one case this falls back to parsing `doc.text` with the
+    canonical template's own default headings -- the only headings such a row ever uses.
+
+    Re-parsing `doc.text` with the *current* caller's settings instead of trusting `doc.meta`
+    would repeat the bug this module exists to avoid: a site whose section headings differ from
+    whatever is asking the question would silently get no candidates.
+    """
+    if "lessons" in doc.meta:
+        return doc.meta
+    return parse_eowr(doc.text)
+
+
+def _eowr_candidates(store: Store, scope: MinerScope,
+                     patterns: _KeywordPatterns) -> list[_Candidate]:
+    """Lessons and recommendations for each candidate end of well report (see `_eowr_meta`)."""
     out: list[_Candidate] = []
     for doc in store.documents(doc_type="eowr", field_name=scope.field_name):
         if scope.clean_wells is not None and doc.well not in scope.clean_wells:
             continue
-        parsed = parse_eowr(doc.text)
-        sentences = [("lesson", s) for s in parsed.get("lessons", [])]
-        sentences += [("recommendation", s) for s in parsed.get("recommendations", [])]
+        meta = _eowr_meta(doc)
+        sentences = [("lesson", s) for s in meta.get("lessons", [])]
+        sentences += [("recommendation", s) for s in meta.get("recommendations", [])]
         for kind, sentence in sentences:
-            if not _relevant(sentence, scope.code, scope.hole_section, scope.formation):
+            if not _relevant(sentence, scope.code, scope.hole_section, scope.formation, patterns):
                 continue
             if classify_sentence(sentence) != "practice":
                 continue
             quote = verbatim_quote(doc.text, sentence)
             if quote is None:
                 continue
-            out.append(_Candidate(_keyword_score(sentence, scope.code), _KIND_RANK[kind],
+            out.append(_Candidate(_keyword_score(sentence, scope.code, patterns), _KIND_RANK[kind],
                                   quote, doc.doc_id, doc.well))
     return out
 
 
-def _incident_candidates(store: Store, scope: MinerScope) -> list[_Candidate]:
+def _incident_meta(doc: Document) -> Mapping[str, Any]:
+    """`doc.meta` when it already carries `parse.parse_incident`'s output, else that parse run
+    directly on `doc.text` with the canonical template's own default headings (see `_eowr_meta`;
+    `"corrective_actions"` is the key `parse_incident` always sets)."""
+    if "corrective_actions" in doc.meta:
+        return doc.meta
+    return parse_incident(doc.text)
+
+
+def _incident_candidates(store: Store, scope: MinerScope,
+                         patterns: _KeywordPatterns) -> list[_Candidate]:
+    """Corrective actions for each candidate incident report (see `_incident_meta`): the code,
+    section and formation matched below are the ones recorded at ingest time with that file's
+    own settings, not values re-derived here from a possibly different current configuration."""
     out: list[_Candidate] = []
     for doc in store.documents(doc_type="incident", field_name=scope.field_name):
-        parsed = parse_incident(doc.text)
-        if parsed.get("code") != scope.code:
+        meta = _incident_meta(doc)
+        if meta.get("code") != scope.code:
             continue
         # An interval risk's incidents have to be the same section and
         # formation too (structural fields, not text: a corrective action
         # ("Run a caliper across the salt...") does not always name the
         # formation the way a lesson does).
-        if scope.hole_section and parsed.get("hole_section") != scope.hole_section:
+        if scope.hole_section and meta.get("hole_section") != scope.hole_section:
             continue
-        if scope.formation and parsed.get("formation") != scope.formation:
+        if scope.formation and meta.get("formation") != scope.formation:
             continue
-        for action in parsed.get("corrective_actions", []):
-            if not _keyword_hit(action, scope.code):
+        for action in meta.get("corrective_actions", []):
+            if not _keyword_hit(action, scope.code, patterns):
                 continue
             if classify_sentence(action) != "practice":
                 continue
             quote = verbatim_quote(doc.text, action)
             if quote is None:
                 continue
-            out.append(_Candidate(_keyword_score(action, scope.code), _KIND_RANK["corrective_action"],
-                                  quote, doc.doc_id, doc.well))
+            out.append(_Candidate(_keyword_score(action, scope.code, patterns),
+                                  _KIND_RANK["corrective_action"], quote, doc.doc_id, doc.well))
     return out
 
 
@@ -315,11 +359,27 @@ def _near_duplicate(a: str, b: str) -> bool:
     return bool(pa) and pa == pb
 
 
-def mine_mitigations(store: Store, scope: MinerScope, limit: int = 3) -> list[Mitigation]:
+def mine_mitigations(store: Store, scope: MinerScope, limit: int = 3,
+                     keywords: Mapping[str, list[str]] | None = None) -> list[Mitigation]:
     """The shared miner: practice sentences from `scope`'s
     candidate wells' end of well reports, plus same-code incident corrective
-    actions, near-duplicates removed, at most `limit`, best first."""
-    candidates = _eowr_candidates(store, scope) + _incident_candidates(store, scope)
+    actions, near-duplicates removed, at most `limit`, best first.
+
+    `keywords` (`[taxonomy.keywords]`) defaults to the canonical template's own vocabulary; a
+    caller with a resolved `settings.Settings` passes its `taxonomy.keywords` through instead.
+    Candidate text and structured fields (lessons, recommendations, corrective actions, code,
+    section, formation) come from each document's own `meta` whenever it has one, parsed once at
+    ingest time with that file's own settings (`[parse.eowr.sections]` / `[parse.incident.sections]`,
+    from an `ingest --config` file or the ingested folder's own `wellbrief.toml`) -- so this needs
+    no section-heading configuration of its own, and is correct even when a document's own
+    template differs from the current workspace `wellbrief.toml` (see `_eowr_meta`,
+    `_incident_meta`). A `Document` built directly rather than through `ingest_folder` (no
+    `meta`, a unit test's own store row) falls back to parsing `doc.text` with the canonical
+    template's own default headings.
+    """
+    patterns = _compile_keywords(keywords) if keywords is not None else _DEFAULT_KEYWORD_PATTERNS
+    candidates = (_eowr_candidates(store, scope, patterns)
+                 + _incident_candidates(store, scope, patterns))
     candidates.sort(key=lambda c: (-c.score, c.kind_rank, c.doc_id))
     out: list[Mitigation] = []
     for c in candidates:

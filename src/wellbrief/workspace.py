@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .bm25 import BM25Index
-from .config import EMBED_BACKEND
+from .config import BM25_B, BM25_K1, EMBED_BACKEND, RRF_K
 from .embed import Embedder, get_embedder
 from .store import Store, chunk_document_id
 
@@ -216,11 +216,14 @@ class FieldIndex:
         return frozenset(chunk_document_id(c) for c in self.bm25.doc_ids)
 
     @classmethod
-    def build(cls, store: Store, field: str, embedder: Embedder) -> FieldIndex:
+    def build(cls, store: Store, field: str, embedder: Embedder,
+             bm25_k1: float = BM25_K1, bm25_b: float = BM25_B) -> FieldIndex:
+        """`bm25_k1`/`bm25_b` are `[retrieval]`'s `k1`/`b` (`settings.RetrievalSettings`),
+        default the built-in `config.BM25_K1`/`BM25_B`."""
         started = time.monotonic()
         chunks = store.chunks(field_name=field)
         items = [(c.chunk_id, c.text) for c in chunks]
-        bm25 = BM25Index.build(items)
+        bm25 = BM25Index.build(items, k1=bm25_k1, b=bm25_b)
         vecs = embedder.embed_many([t for _, t in items]) if items else []
         vectors = VectorIndex([c.chunk_id for c in chunks], vecs, embedder.dim, embedder.name)
         manifest = FieldManifest(
@@ -268,15 +271,17 @@ def index_files_hash(ws: Workspace, field: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def build_field_indexes(store: Store, embed_backend: str = EMBED_BACKEND) -> dict[str, FieldIndex]:
+def build_field_indexes(store: Store, embed_backend: str = EMBED_BACKEND,
+                        bm25_k1: float = BM25_K1, bm25_b: float = BM25_B) -> dict[str, FieldIndex]:
     """One in-memory `FieldIndex` per field the store currently holds documents for."""
     fields = store.field_names()
     check_field_slugs(fields)
     embedder = get_embedder(embed_backend)
-    return {field: FieldIndex.build(store, field, embedder) for field in fields}
+    return {field: FieldIndex.build(store, field, embedder, bm25_k1, bm25_b) for field in fields}
 
 
-def build_searcher(store: Store, embed_backend: str = EMBED_BACKEND) -> Searcher:
+def build_searcher(store: Store, embed_backend: str = EMBED_BACKEND, bm25_k1: float = BM25_K1,
+                   bm25_b: float = BM25_B, rrf_k: int = RRF_K) -> Searcher:
     """A `search.Searcher` over freshly built, in-memory per-field indexes.
 
     Import of `search` is local to avoid a cycle (`search` imports `FieldIndex`
@@ -285,7 +290,8 @@ def build_searcher(store: Store, embed_backend: str = EMBED_BACKEND) -> Searcher
     """
     from .search import Searcher as _Searcher
 
-    return _Searcher(store, build_field_indexes(store, embed_backend), get_embedder(embed_backend))
+    indexes = build_field_indexes(store, embed_backend, bm25_k1, bm25_b)
+    return _Searcher(store, indexes, get_embedder(embed_backend), rrf_k=rrf_k)
 
 
 # --------------------------------------------------------------------------
@@ -293,19 +299,20 @@ def build_searcher(store: Store, embed_backend: str = EMBED_BACKEND) -> Searcher
 # --------------------------------------------------------------------------
 
 
-def rebuild_field_index(ws: Workspace, store: Store, field: str,
-                        embed_backend: str = EMBED_BACKEND) -> FieldIndex:
+def rebuild_field_index(ws: Workspace, store: Store, field: str, embed_backend: str = EMBED_BACKEND,
+                        bm25_k1: float = BM25_K1, bm25_b: float = BM25_B) -> FieldIndex:
     """Build one field's index from the store and persist it, unconditionally
     (`wellbrief index` rebuilds even when the on-disk copy is already fresh)."""
-    index = FieldIndex.build(store, field, get_embedder(embed_backend))
+    index = FieldIndex.build(store, field, get_embedder(embed_backend), bm25_k1, bm25_b)
     save_field_index(ws, index)
     return index
 
 
-def ensure_field_indexes(ws: Workspace, store: Store,
-                         embed_backend: str = EMBED_BACKEND) -> dict[str, FieldIndex]:
-    """Every field's index, loaded from disk when it is present and matches the
-    store's current corpus hash and embedder, rebuilt (and persisted) otherwise.
+def ensure_field_indexes(ws: Workspace, store: Store, embed_backend: str = EMBED_BACKEND,
+                         bm25_k1: float = BM25_K1, bm25_b: float = BM25_B) -> dict[str, FieldIndex]:
+    """Every field's index, loaded from disk when it is present, matches the store's current
+    corpus hash and embedder, and was built with the same BM25 `k1`/`b` (`[retrieval]`), rebuilt
+    (and persisted) otherwise.
 
     Used to wire `ask` and `brief` so they work right after `ingest` without
     a separate `index` step, while `wellbrief index` stays the explicit,
@@ -318,7 +325,8 @@ def ensure_field_indexes(ws: Workspace, store: Store,
     for field in fields:
         existing = load_field_index(ws, field)
         fresh = (existing is not None and existing.manifest.embedder == embedder.name
-                and existing.manifest.corpus_hash == store.corpus_hash(field))
+                and existing.manifest.corpus_hash == store.corpus_hash(field)
+                and existing.bm25.k1 == bm25_k1 and existing.bm25.b == bm25_b)
         out[field] = existing if fresh and existing is not None else rebuild_field_index(
-            ws, store, field, embed_backend)
+            ws, store, field, embed_backend, bm25_k1, bm25_b)
     return out

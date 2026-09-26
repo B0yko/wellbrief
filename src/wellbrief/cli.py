@@ -15,18 +15,21 @@ import argparse
 import json
 import sys
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief, workspace as workspace_mod
-from .config import DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND, RISK_MAX_RISKS
+from .config import EMBED_BACKEND, LLM_BACKEND
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
 from .llm import get_narrator
 from .qa import ask as ask_qa
 from .search import Searcher
+from .settings import Settings, SettingsError, resolve_settings
 from .store import Store
 from .workspace import FieldIndex, Workspace
 
@@ -35,11 +38,29 @@ def _workspace(args: argparse.Namespace) -> Workspace:
     return Workspace.resolve(getattr(args, "workspace", None))
 
 
-def _wire(args) -> tuple[Workspace, Store, Searcher]:
+def _settings(ws: Workspace, args: argparse.Namespace) -> Settings:
+    """Resolve this command's settings: `<workspace>/wellbrief.toml`, overridden by whichever
+    of this command's own flags carry a value (`--spread-rate`, `ask`'s `--top-k`, `brief`'s
+    `--max-risks`), overridden in turn by the matching environment variable
+    (`WELLBRIEF_SPREAD_RATE_USD_PER_DAY`; `top_k`/`max_risks` have none yet). `ingest` resolves
+    its own, separate settings (`cmd_ingest`), since it alone also has `--config` and the
+    ingested folder's own `wellbrief.toml` to fold in."""
+    return resolve_settings(
+        workspace_root=ws.root,
+        spread_rate=getattr(args, "spread_rate", None),
+        top_k=getattr(args, "top_k", None),
+        max_risks=getattr(args, "max_risks", None),
+    )
+
+
+def _wire(args: argparse.Namespace) -> tuple[Workspace, Store, Searcher, Settings]:
     ws = _workspace(args)
     store = ws.open_store()
-    indexes = workspace_mod.ensure_field_indexes(ws, store, args.embed_backend)
-    return ws, store, Searcher(store, indexes, get_embedder(args.embed_backend))
+    st = _settings(ws, args)
+    indexes = workspace_mod.ensure_field_indexes(ws, store, args.embed_backend, st.retrieval.k1,
+                                                 st.retrieval.b)
+    searcher = Searcher(store, indexes, get_embedder(args.embed_backend), rrf_k=st.retrieval.rrf_k)
+    return ws, store, searcher, st
 
 
 def _index_age_seconds(built_at: str) -> float:
@@ -47,7 +68,7 @@ def _index_age_seconds(built_at: str) -> float:
     return (datetime.now(UTC) - built).total_seconds()
 
 
-def _emit(payload, as_json: bool, text: str = "") -> None:
+def _emit(payload: Any, as_json: bool, text: str = "") -> None:
     if as_json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
@@ -81,20 +102,23 @@ def _coverage_lines(coverage: ingest_mod.Coverage, path: Path, dry_run: bool) ->
     return lines
 
 
-def cmd_ingest(args) -> int:
+def cmd_ingest(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
     try:
-        coverage = ingest_mod.ingest_folder(store, args.path, field=args.field, prune=args.prune,
-                                            dry_run=args.dry_run)
+        coverage = ingest_mod.ingest_folder(store, args.path, field=args.field, config=args.config,
+                                            workspace_root=ws.root, prune=args.prune, dry_run=args.dry_run)
     except OSError as exc:
         print(f"wellbrief ingest: {exc}", file=sys.stderr)
         store.close()
         return 2
     lines = _coverage_lines(coverage, args.path, args.dry_run)
     if not args.dry_run and coverage.fields:
+        st = resolve_settings(workspace_root=ws.root, ingest_config_path=args.config,
+                              ingest_folder=args.path)
         workspace_mod.check_field_slugs(store.field_names())
-        built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend)
+        built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend, st.retrieval.k1,
+                                                    st.retrieval.b)
                 for f in sorted(coverage.fields)]
         if built:
             lines.append("Indexed: " + "; ".join(
@@ -105,9 +129,10 @@ def cmd_ingest(args) -> int:
     return 0
 
 
-def cmd_index(args) -> int:
+def cmd_index(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
+    st = _settings(ws, args)
     known = store.field_names()
     workspace_mod.check_field_slugs(known)
     if args.field and args.field not in known:
@@ -116,7 +141,8 @@ def cmd_index(args) -> int:
         store.close()
         return 2
     fields = [args.field] if args.field else known
-    built: list[FieldIndex] = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend)
+    built: list[FieldIndex] = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend,
+                                                                 st.retrieval.k1, st.retrieval.b)
                                for f in fields]
     payload = {
         "workspace": ws.name,
@@ -133,7 +159,7 @@ def cmd_index(args) -> int:
     return 0
 
 
-def cmd_status(args) -> int:
+def cmd_status(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
     fields = store.field_names()
@@ -177,11 +203,12 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_ask(args) -> int:
-    _, store, searcher = _wire(args)
+def cmd_ask(args: argparse.Namespace) -> int:
+    _, store, searcher, st = _wire(args)
     narrator = get_narrator(args.llm_backend)
     answer = ask_qa(args.question, store, searcher, narrator=narrator,
-                    top_k=args.top_k, spread_rate=args.spread_rate)
+                    top_k=st.retrieval.top_k, spread_rate=st.spread_rate_usd_per_day,
+                    keywords=st.taxonomy.keywords)
     if args.json:
         print(json.dumps(answer.to_dict(), indent=2, ensure_ascii=False))
     else:
@@ -199,18 +226,22 @@ def cmd_ask(args) -> int:
     return 0
 
 
-def cmd_brief(args) -> int:
-    ws, store, _ = _wire(args)
+def cmd_brief(args: argparse.Namespace) -> int:
+    ws, store, _, st = _wire(args)
     narrator = get_narrator(args.llm_backend)
+    risk_thresholds = asdict(st.risk)
+    find_patterns_thresholds = {k: v for k, v in risk_thresholds.items() if k != "max_risks"}
     verification_placeholder: dict[str, Any] = {}
     index_hash = workspace_mod.index_files_hash(ws, args.field)
-    provenance = riskbrief.build_provenance(store, args.field, args.spread_rate, narrator.name,
-                                            verification_placeholder, index_manifest_hash=index_hash)
+    provenance = riskbrief.build_provenance(store, args.field, st.spread_rate_usd_per_day, narrator.name,
+                                            verification_placeholder, index_manifest_hash=index_hash,
+                                            risk_thresholds=risk_thresholds)
     try:
         brief = riskbrief.build_brief(
             store, args.well, args.field, args.td,
-            spread_rate=args.spread_rate, narrator=narrator, max_risks=args.max_risks,
+            spread_rate=st.spread_rate_usd_per_day, narrator=narrator, max_risks=st.risk.max_risks,
             plan_rig=args.rig, plan_mwd=args.mwd, provenance=provenance,
+            risk_thresholds=find_patterns_thresholds, keywords=st.taxonomy.keywords,
         )
     except riskbrief.MissingDdrDataError as exc:
         print(f"wellbrief brief: {exc}", file=sys.stderr)
@@ -249,8 +280,10 @@ def cmd_brief(args) -> int:
     return 0 if check["ok"] else 2
 
 
-def cmd_npt(args) -> int:
-    store = _workspace(args).open_store()
+def cmd_npt(args: argparse.Namespace) -> int:
+    ws = _workspace(args)
+    store = ws.open_store()
+    st = _settings(ws, args)
     filters = {}
     if args.field:
         filters["field_name"] = args.field
@@ -258,7 +291,7 @@ def cmd_npt(args) -> int:
         filters["code"] = args.code
     if args.well:
         filters["well"] = args.well
-    roll = analytics.rollup(store.npt(**filters), args.spread_rate)
+    roll = analytics.rollup(store.npt(**filters), st.spread_rate_usd_per_day)
     if args.json:
         print(json.dumps(roll, indent=2, ensure_ascii=False))
     else:
@@ -274,9 +307,12 @@ def cmd_npt(args) -> int:
     return 0
 
 
-def cmd_patterns(args) -> int:
-    store = _workspace(args).open_store()
-    patterns = analytics.find_patterns(store, args.field)
+def cmd_patterns(args: argparse.Namespace) -> int:
+    ws = _workspace(args)
+    store = ws.open_store()
+    st = _settings(ws, args)
+    thresholds = {k: v for k, v in asdict(st.risk).items() if k != "max_risks"}
+    patterns = analytics.find_patterns(store, args.field, **thresholds)
     if args.json:
         print(json.dumps([p.to_dict() for p in patterns], indent=2, ensure_ascii=False))
     else:
@@ -296,9 +332,11 @@ def cmd_patterns(args) -> int:
     return 0
 
 
-def cmd_digest(args) -> int:
-    store = _workspace(args).open_store()
-    payload = analytics.digest(store, args.since, args.spread_rate)
+def cmd_digest(args: argparse.Namespace) -> int:
+    ws = _workspace(args)
+    store = ws.open_store()
+    st = _settings(ws, args)
+    payload = analytics.digest(store, args.since, st.spread_rate_usd_per_day)
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
@@ -312,7 +350,7 @@ def cmd_digest(args) -> int:
     return 0
 
 
-def cmd_corpus_generate(args) -> int:
+def cmd_corpus_generate(args: argparse.Namespace) -> int:
     try:
         generated = corpus.build_corpus(seed=args.seed, scale=args.scale)
         written = corpus.write_corpus(generated, args.out, args.formats, ledger_csv=args.ledger_csv)
@@ -363,7 +401,7 @@ def _seeds(raw: str) -> list[int]:
     return seeds
 
 
-def cmd_eval(args) -> int:
+def cmd_eval(args: argparse.Namespace) -> int:
     from .evals import cases, results, runner
 
     unsupported = [flag for flag, used in (("--ablation", args.ablation), ("--repeats", args.repeats != 1),
@@ -399,8 +437,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="workspace name inside $WELLBRIEF_HOME (default: $WELLBRIEF_WORKSPACE or 'default')")
     p.add_argument("--embed-backend", default=EMBED_BACKEND, choices=["offline"])
     p.add_argument("--llm-backend", default=LLM_BACKEND, choices=["offline"])
-    p.add_argument("--spread-rate", type=float, default=DEFAULT_SPREAD_RATE_USD_PER_DAY,
-                   help="all-in spread rate in USD per day, used for every cost figure")
+    p.add_argument("--spread-rate", type=float, default=None,
+                   help="all-in spread rate in USD per day, used for every cost figure "
+                        "(default: $WELLBRIEF_SPREAD_RATE_USD_PER_DAY, else 48000)")
     p.add_argument("--json", action="store_true", help="machine readable output")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -408,6 +447,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("path", type=Path)
     sp.add_argument("--field", help="field for a document with no field detected in its own text "
                                     "(default: 'unassigned')")
+    sp.add_argument("--config", type=Path,
+                    help="wellbrief.toml with this ingest's parse settings (default: the ingested "
+                         "folder's own wellbrief.toml, if it has one)")
     sp.add_argument("--prune", action="store_true",
                     help="remove documents whose files are no longer in the folder")
     sp.add_argument("--dry-run", action="store_true",
@@ -423,7 +465,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("ask", help="ask a question of the archive")
     sp.add_argument("question")
-    sp.add_argument("--top-k", type=int, default=8)
+    sp.add_argument("--top-k", type=int, default=None,
+                    help="results to retrieve (default: [retrieval] top_k in wellbrief.toml, else 8)")
     sp.set_defaults(func=cmd_ask)
 
     sp = sub.add_parser("brief", help="build an offset-well risk brief for a planned well")
@@ -432,7 +475,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--td", type=float, required=True, help="planned total depth in metres")
     sp.add_argument("--rig", help="planned rig; marks rig-keyed risks as applies or does-not-apply")
     sp.add_argument("--mwd", help="planned MWD tool; marks tool-keyed risks as applies or does-not-apply")
-    sp.add_argument("--max-risks", type=int, default=RISK_MAX_RISKS)
+    sp.add_argument("--max-risks", type=int, default=None,
+                    help="risks listed, ranked by expected cost (default: [risk] max_risks in "
+                         "wellbrief.toml, else 8)")
     sp.add_argument("--format", choices=["text", "md", "json"], default="text")
     sp.add_argument("--out", type=Path, help="write the brief to this file instead of stdout")
     sp.set_defaults(func=cmd_brief)
@@ -488,7 +533,12 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
     args.argv = argv
-    return args.func(args)
+    func: Callable[[argparse.Namespace], int] = args.func
+    try:
+        return func(args)
+    except SettingsError as exc:
+        print(f"wellbrief: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ having avoided a discovered pattern.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from .analytics import Pattern, find_patterns, finite_or_none, unavoidable_background
@@ -145,10 +146,11 @@ def _title(pattern: Pattern) -> str:
 
 
 def build_risk(store: Store, pattern: Pattern, spread_rate: float,
-              plan_rig: str | None = None, plan_mwd: str | None = None) -> Risk:
+              plan_rig: str | None = None, plan_mwd: str | None = None,
+              keywords: Mapping[str, list[str]] | None = None) -> Risk:
     probability = pattern.probability
     expected_hours = probability * pattern.mean_hours_per_affected_well
-    mitigations = mine_mitigations(store, _scope_for(pattern))
+    mitigations = mine_mitigations(store, _scope_for(pattern), keywords=keywords)
     citations = _citations_for(store, pattern)
 
     for m in mitigations:
@@ -198,11 +200,20 @@ def build_brief(
     plan_mwd: str | None = None,
     provenance: dict[str, Any] | None = None,
     risk_filters: bool = True,
+    risk_thresholds: Mapping[str, Any] | None = None,
+    keywords: Mapping[str, list[str]] | None = None,
 ) -> RiskBrief:
     """`risk_filters=False` (`eval --no-risk-filters`) drops the lift gate
     (`min_lift=0`) and lets the unavoidable codes back in, the baseline the
     filters are measured against; every other threshold, and the TD and
     max-risks cuts below, stay the same.
+
+    `risk_thresholds` overrides `find_patterns`' own defaults (`min_wells`, `min_support`,
+    `equipment_min_ratio`, `equipment_min_rate`, `equipment_min_wells`, and `min_lift` when
+    `risk_filters` is true); a resolved `settings.Settings`' `risk.*` fields, minus `max_risks`
+    (this function's own parameter already covers it). `keywords` is the mitigation miner's own
+    configuration (`build_risk`); a resolved `settings.Settings`' `taxonomy.keywords`, default the
+    canonical template's own.
 
     Raises:
         MissingDdrDataError: `field_name` has NPT ledger rows but no daily reports.
@@ -212,14 +223,16 @@ def build_brief(
             f"field {field_name!r} has NPT ledger rows but no daily drilling reports; a risk "
             "brief needs daily reports to compute exposed-well statistics"
         )
+    thresholds = dict(risk_thresholds or {})
     if risk_filters:
-        patterns = find_patterns(store, field_name)
+        patterns = find_patterns(store, field_name, **thresholds)
     else:
-        patterns = find_patterns(store, field_name, min_lift=0.0, avoidable_only=False)
+        patterns = find_patterns(store, field_name, avoidable_only=False, **{**thresholds, "min_lift": 0.0})
     # Only carry risks whose depth window the planned well will actually reach.
     patterns = [p for p in patterns if p.depth_window_m[0] <= planned_td_m + 50]
 
-    risks = [build_risk(store, p, spread_rate, plan_rig, plan_mwd) for p in patterns]
+    risks = [build_risk(store, p, spread_rate, plan_rig, plan_mwd, keywords=keywords)
+             for p in patterns]
     risks.sort(key=lambda r: -r.expected_cost_usd)
     risks = risks[:max_risks]
 
@@ -263,7 +276,8 @@ def verify_brief(brief: RiskBrief, store: Store) -> dict[str, Any]:
 
 
 def build_provenance(store: Store, field_name: str, spread_rate: float, narrator_name: str,
-                     verification: dict[str, Any], index_manifest_hash: str = "") -> dict[str, Any]:
+                     verification: dict[str, Any], index_manifest_hash: str = "",
+                     risk_thresholds: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Everything a reader needs to know what a brief was built from and
     whether to trust it: version, when, from which corpus and index, the
     thresholds behind the statistics, the spread rate, the narrator, and the
@@ -273,26 +287,32 @@ def build_provenance(store: Store, field_name: str, spread_rate: float, narrator
     `index_manifest_hash` is the field's on-disk index files hashed together
     (`workspace.index_files_hash`); this module has no workspace of its own,
     so the caller (`cli.cmd_brief`) computes it and passes it in, empty when
-    the field has no index built yet.
+    the field has no index built yet. `risk_thresholds` overrides the built-in
+    `[risk]` defaults below with the ones the brief was actually built with
+    (a resolved `settings.Settings.risk`, as a mapping); the provenance block
+    always names the thresholds that actually governed the brief, not the
+    built-in ones, when a site's own `wellbrief.toml` has changed them.
     """
     from datetime import UTC, datetime
 
     from . import __version__
 
+    thresholds: dict[str, Any] = {
+        "min_lift": RISK_MIN_LIFT,
+        "min_wells": RISK_MIN_WELLS,
+        "min_support": RISK_MIN_SUPPORT,
+        "max_risks": RISK_MAX_RISKS,
+        "equipment_min_ratio": EQUIPMENT_MIN_RATIO,
+        "equipment_min_rate": EQUIPMENT_MIN_RATE,
+        "equipment_min_wells": EQUIPMENT_MIN_WELLS,
+    }
+    thresholds.update(risk_thresholds or {})
     return {
         "wellbrief_version": __version__,
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "corpus_hash": store.corpus_hash(field_name),
         "index_manifest_hash": index_manifest_hash,
-        "thresholds": {
-            "min_lift": RISK_MIN_LIFT,
-            "min_wells": RISK_MIN_WELLS,
-            "min_support": RISK_MIN_SUPPORT,
-            "max_risks": RISK_MAX_RISKS,
-            "equipment_min_ratio": EQUIPMENT_MIN_RATIO,
-            "equipment_min_rate": EQUIPMENT_MIN_RATE,
-            "equipment_min_wells": EQUIPMENT_MIN_WELLS,
-        },
+        "thresholds": thresholds,
         "spread_rate_usd_per_day": spread_rate,
         "narrator": narrator_name,
         "verification": verification,

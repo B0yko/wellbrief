@@ -694,10 +694,12 @@ class Searcher:
     never drowns out another's.
     """
 
-    def __init__(self, store: Store, field_indexes: Mapping[str, FieldIndex], embedder: Embedder):
+    def __init__(self, store: Store, field_indexes: Mapping[str, FieldIndex], embedder: Embedder,
+                rrf_k: int = RRF_K):
         self.store = store
         self.field_indexes = dict(field_indexes)
         self.embedder = embedder
+        self.rrf_k = rrf_k
 
     def _field_ranking(self, field_name: str, query: str, qvec: list[float] | None,
                        allowed: set[str] | None, depth: list[tuple[str, float]],
@@ -724,7 +726,7 @@ class Searcher:
         field_depth = [(d, s) for d, s in depth if d in field_docs][:pool]
         if field_depth:
             rankings["depth"] = field_depth
-        return rrf_fuse(rankings)[:pool]
+        return rrf_fuse(rankings, k=self.rrf_k)[:pool]
 
     def search(self, question: str, top_k: int = DEFAULT_TOP_K,
                plan: QueryPlan | None = None) -> tuple[list[SearchHit], QueryPlan]:
@@ -753,7 +755,7 @@ class Searcher:
             fused = next(iter(per_field.values()), [])[:top_k]
         else:
             cross = {f"field:{name}": [(d, s) for d, s, _ in ranked] for name, ranked in per_field.items()}
-            fused = rrf_fuse(cross)[:top_k]
+            fused = rrf_fuse(cross, k=self.rrf_k)[:top_k]
 
         terms = quote_terms(question, plan)
         entries = quoted_entries(plan, self.store, (doc_id for doc_id, _, _ in fused))

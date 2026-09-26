@@ -24,6 +24,7 @@ from typing import Any
 
 from .. import __version__
 from ..analytics import find_patterns, interval_patterns
+from ..config import DEFAULT_SPREAD_RATE_USD_PER_DAY as _DEFAULT_SPREAD_RATE
 from ..corpus import FORMATS, build_corpus, write_corpus
 from ..ingest import ingest_folder
 from ..llm import OfflineNarrator
@@ -149,9 +150,9 @@ class Workspace:
         self.store.close()
 
     def ask(self, question: str, top_k: int = 8, spread_rate: float | None = None) -> AskResult:
-        kwargs = {} if spread_rate is None else {"spread_rate": spread_rate}
+        rate = _DEFAULT_SPREAD_RATE if spread_rate is None else spread_rate
         answer = product_ask(question, self.store, self.searcher, narrator=self.narrator, top_k=top_k,
-                             **kwargs)
+                             spread_rate=rate)
         computed = answer.figures or {}
         figures = {k: float(computed[k])
                    for k in ("total_hours", "total_cost_usd", "avoidable_share", "event_count")

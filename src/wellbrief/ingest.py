@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from . import parse
-from .config import NPT_CODES
 from .detect import detect_doc_type
 from .models import Document, FileRecord, NptEvent, Well
 from .readers import ReaderError
@@ -28,6 +27,7 @@ from .readers.csvledger import read_ledger
 from .readers.docx import read_docx
 from .readers.pdf import read_pdf
 from .readers.txt import read_text
+from .settings import Settings, resolve_settings
 from .store import Store, chunk_document
 
 DOC_TYPE_BY_PREFIX = {"DDR": "ddr", "EOWR": "eowr", "INC": "incident"}
@@ -172,8 +172,6 @@ _DEDUP_HOURS_TOLERANCE = 0.05
 # is reported for.
 _EXTRACTION_ATTRIBUTES = ("depth", "section", "formation", "mud_weight", "npt_blocks")
 
-_CODE_CLEAN = re.compile(r"[^A-Za-z0-9]+")
-
 
 @dataclass(frozen=True)
 class SkippedFile:
@@ -221,17 +219,6 @@ class Coverage:
         }
 
 
-def _normalise_code(raw: str) -> str:
-    """A site's own spelling of an NPT code, folded to the taxonomy (`STUCK PIPE` -> `STUCK_PIPE`);
-    a code the taxonomy does not know becomes `OTHER`, the same catch-all the DDR parser uses.
-
-    Site-specific aliases (`[taxonomy.aliases]`) are a later, configuration phase; this is the
-    built-in fallback it will still fall back to.
-    """
-    code = _CODE_CLEAN.sub("_", raw.strip()).strip("_").upper()
-    return code if code in NPT_CODES else "OTHER"
-
-
 def _read_document_file(path: Path) -> tuple[str, list[int] | None]:
     """`(text, page_map)` for one `.txt`/`.md`/`.pdf`/`.docx` file; `page_map` is set only for
     a PDF (cumulative end-offset of each page's own text in the joined `text`, so `quotes.quote_page`
@@ -264,10 +251,10 @@ def _doc_id_for(rel_path: str, stem: str, *, collides: bool) -> str:
 
 
 def _build_document(text: str, page_map: list[int] | None, doc_id: str, rel_path: str,
-                    field: str | None) -> Document:
+                    field: str | None, settings: Settings) -> Document:
     """One non-CSV document: type from its content heading (else its filename, else `"other"`),
     field from its header (else `--field`, else `"unassigned"`), and its full parsed metadata."""
-    doc_type = detect_doc_type(text, Path(rel_path).stem)
+    doc_type = detect_doc_type(text, Path(rel_path).stem, settings.detect.headings)
     header = parse.parse_header(text)
     title = next((s.strip() for s in text.splitlines() if s.strip()), doc_id)
     doc = Document(
@@ -276,7 +263,8 @@ def _build_document(text: str, page_map: list[int] | None, doc_id: str, rel_path
         date=header.get("date") or "1970-01-01", title=title, text=text, meta={},
         source=rel_path, page_map=page_map,
     )
-    meta = parse.parse(doc)
+    meta = parse.parse(doc, ddr_labels=settings.parse.ddr_labels, eowr_sections=settings.parse.eowr_sections,
+                       incident_sections=settings.parse.incident_sections, aliases=settings.taxonomy.aliases)
     doc.meta = {k: v for k, v in meta.items() if v is not None}
     return doc
 
@@ -312,7 +300,8 @@ def _replace_stale_doc_ids(store: Store, existing: FileRecord | None, new_ids: s
 
 def _ingest_regular_files(
     store: Store, changed: list[tuple[Path, str, str, str, int]], field: str | None, dry_run: bool,
-    existing_files: dict[str, FileRecord], coverage: Coverage,
+    existing_files: dict[str, FileRecord], coverage: Coverage, settings: Settings,
+    parse_config: dict[str, Any],
 ) -> list[NptEvent]:
     """Read, detect, parse and (unless `dry_run`) store every changed `.txt`/`.md`/`.pdf`/`.docx`
     file. Returns the DDR events built this run (also used by the CSV pass's duplicate check)."""
@@ -330,23 +319,27 @@ def _ingest_regular_files(
                 _replace_stale_doc_ids(store, existing_files.get(rel), set())
                 store.put_files([FileRecord(
                     path=rel, sha256=sha, size=size, mtime=0.0, doc_ids=[], status="skipped",
-                    reason=str(exc), field_name="",
+                    reason=str(exc), field_name="", parse_config=parse_config,
                 )])
             continue
-        doc = _build_document(text, page_map, doc_id, rel, field)
+        doc = _build_document(text, page_map, doc_id, rel, field, settings)
         docs.append(doc)
         coverage.fields.add(doc.field_name)
         if doc.doc_type == "ddr":
-            ddr_parsed.append(parse.parse_ddr(text))
+            ddr_parsed.append(parse.parse_ddr(text, labels=settings.parse.ddr_labels,
+                                              aliases=settings.taxonomy.aliases))
             ddr_texts.append(text)
         if not dry_run:
             _replace_stale_doc_ids(store, existing_files.get(rel), {doc_id})
             store.put_files([FileRecord(
                 path=rel, sha256=sha, size=size, mtime=0.0,
                 doc_ids=[doc_id], status="ingested", reason=None, field_name=doc.field_name,
+                parse_config=parse_config,
             )])
 
-    events = [e for doc in docs for e in parse.npt_events(doc)]
+    events = [e for doc in docs
+             for e in parse.npt_events(doc, ddr_labels=settings.parse.ddr_labels,
+                                       aliases=settings.taxonomy.aliases)]
     if not dry_run:
         if docs:
             store.put_documents(docs)
@@ -363,6 +356,7 @@ def _ingest_regular_files(
 def _ingest_csv_files(
     store: Store, changed: list[tuple[Path, str, str, str, int]], field: str | None, dry_run: bool,
     existing_files: dict[str, FileRecord], ddr_events: list[NptEvent], coverage: Coverage,
+    settings: Settings, parse_config: dict[str, Any],
 ) -> None:
     """Read every changed CSV ledger. Each row becomes one NPT event and one citable one-line
     document (its raw row text); a row that describes the same event as a DDR NPT entry ingested
@@ -382,14 +376,14 @@ def _ingest_csv_files(
 
     for path, rel, sha, file_key, size in changed:
         try:
-            result = read_ledger(path)
-        except ReaderError as exc:
+            result = read_ledger(path, columns=settings.csv.columns, date_format=settings.csv.date_format)
+        except (ReaderError, ValueError) as exc:
             coverage.skipped.append(SkippedFile(rel, str(exc)))
             if not dry_run:
                 _replace_stale_doc_ids(store, existing_files.get(rel), set())
                 store.put_files([FileRecord(
                     path=rel, sha256=sha, size=size, mtime=0.0, doc_ids=[], status="skipped",
-                    reason=str(exc), field_name="",
+                    reason=str(exc), field_name="", parse_config=parse_config,
                 )])
             continue
         coverage.csv_row_errors += [f"{rel}: {msg}" for msg in result.errors]
@@ -400,7 +394,7 @@ def _ingest_csv_files(
         for row in result.rows:
             doc_id = f"{file_key}-r{row.line_no}"
             row_field = row.field or field or UNASSIGNED_FIELD
-            code = _normalise_code(row.code)
+            code = parse.resolve_npt_code(row.code, settings.taxonomy.aliases)
             docs.append(Document(
                 doc_id=doc_id, doc_type=CSV_DOC_TYPE, well=row.well, field_name=row_field,
                 date=row.date, title=row.raw_line, text=row.raw_line, meta={}, source=rel,
@@ -439,19 +433,36 @@ def _ingest_csv_files(
 
 
 def ingest_folder(store: Store, folder: Path | str, *, field: str | None = None,
+                  config: Path | str | None = None, workspace_root: Path | str | None = None,
                   prune: bool = False, dry_run: bool = False) -> Coverage:
     """Ingest a folder of `.txt`, `.md`, `.pdf`, `.docx` and `.csv` well files.
 
     Unchanged files (same sha256 as the store's last-recorded `files` row) are skipped; a
     changed file replaces its document(s), chunks and events. Files whose name starts with `_`
-    and the folder's own `wellbrief.toml` are never read (the generator's ground-truth sidecar is
-    one such file). `--prune` removes documents whose files are gone from `folder`; both are
-    reported in the returned `Coverage`, and neither writes anything when `dry_run` is set.
+    and the folder's own `wellbrief.toml` are never read as documents (the generator's
+    ground-truth sidecar is one such file), but *are* read as configuration: the labels, section
+    headings, detection headings, taxonomy aliases and CSV column mapping this run parses with
+    are resolved once, via `settings.resolve_settings`, from `config` (`ingest --config`, highest
+    precedence), else `folder`'s own `wellbrief.toml`, else `workspace_root`'s (the workspace's
+    own, when this ingest has one), else the built-in defaults; the resolved parse configuration
+    is recorded on every `FileRecord` this run writes, so a later re-parse is reproducible even if
+    the workspace's own `wellbrief.toml` has since changed. `--prune` removes documents whose
+    files are gone from `folder`; both are reported in the returned `Coverage`, and neither writes
+    anything when `dry_run` is set.
+
+    The incremental skip above is keyed only on a file's sha256: fixing a `wellbrief.toml` entry
+    (an alias, a label, a heading) and re-ingesting does not by itself re-parse a file whose
+    content did not change, since that file is still recognised as unchanged and skipped. Getting
+    the new settings applied needs the file itself touched (even a no-op rewrite changes its
+    hash), or a fresh store.
 
     `field` names the field a document with no detected field (its header, or its ledger row's
     own `field` column) is filed under; a document with neither goes to `"unassigned"`.
     """
     root = Path(folder)
+    settings = resolve_settings(workspace_root=workspace_root, ingest_config_path=config,
+                                ingest_folder=root)
+    parse_config = settings.ingest_parse_config()
     coverage = Coverage()
     existing_files = {f.path: f for f in store.files()}
 
@@ -488,8 +499,10 @@ def ingest_folder(store: Store, folder: Path | str, *, field: str | None = None,
         entry = (p, rel, sha, doc_id, len(raw))
         (changed_csv if suffix == _CSV_EXTENSION else changed_regular).append(entry)
 
-    ddr_events = _ingest_regular_files(store, changed_regular, field, dry_run, existing_files, coverage)
-    _ingest_csv_files(store, changed_csv, field, dry_run, existing_files, ddr_events, coverage)
+    ddr_events = _ingest_regular_files(store, changed_regular, field, dry_run, existing_files, coverage,
+                                      settings, parse_config)
+    _ingest_csv_files(store, changed_csv, field, dry_run, existing_files, ddr_events, coverage,
+                      settings, parse_config)
 
     if prune:
         for rel in sorted(existing_files):

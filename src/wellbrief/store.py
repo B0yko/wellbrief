@@ -78,14 +78,15 @@ CREATE TABLE IF NOT EXISTS wells (
 );
 
 CREATE TABLE IF NOT EXISTS files (
-    path       TEXT PRIMARY KEY,
-    sha256     TEXT NOT NULL,
-    size       INTEGER NOT NULL,
-    mtime      REAL NOT NULL,
-    doc_ids    TEXT NOT NULL,
-    status     TEXT NOT NULL,
-    reason     TEXT,
-    field_name TEXT NOT NULL DEFAULT ''
+    path         TEXT PRIMARY KEY,
+    sha256       TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    mtime        REAL NOT NULL,
+    doc_ids      TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    reason       TEXT,
+    field_name   TEXT NOT NULL DEFAULT '',
+    parse_config TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -235,10 +236,11 @@ class Store:
     # -- writes: files ----------------------------------------------------
     def put_files(self, records: Iterable[FileRecord]) -> int:
         rows = [
-            (r.path, r.sha256, r.size, r.mtime, json.dumps(r.doc_ids), r.status, r.reason, r.field_name)
+            (r.path, r.sha256, r.size, r.mtime, json.dumps(r.doc_ids), r.status, r.reason, r.field_name,
+             json.dumps(r.parse_config))
             for r in records
         ]
-        self.conn.executemany("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?)", rows)
+        self.conn.executemany("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?,?)", rows)
         self.conn.commit()
         return len(rows)
 
@@ -246,7 +248,7 @@ class Store:
     def _file(row: sqlite3.Row) -> FileRecord:
         return FileRecord(path=row["path"], sha256=row["sha256"], size=row["size"], mtime=row["mtime"],
                           doc_ids=json.loads(row["doc_ids"]), status=row["status"], reason=row["reason"],
-                          field_name=row["field_name"])
+                          parse_config=json.loads(row["parse_config"]), field_name=row["field_name"])
 
     def files(self) -> list[FileRecord]:
         return [self._file(r) for r in self.conn.execute("SELECT * FROM files ORDER BY path")]

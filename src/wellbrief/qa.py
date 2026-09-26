@@ -41,6 +41,7 @@ the other stages produced.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -223,7 +224,9 @@ MITIGATIONS_HEADING_AVOIDED = "Recorded mitigations on wells that avoided it"
 MITIGATIONS_HEADING_GENERAL = "Lessons and recommendations from end-of-well reports"
 
 
-def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3) -> tuple[list[dict[str, str]], str]:
+def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3,
+                     keywords: Mapping[str, list[str]] | None = None,
+                     ) -> tuple[list[dict[str, str]], str]:
     """Mitigations relevant to the question's scope, through the same miner
     `riskbrief.build_risk` uses, and the heading the answer
     should show above them. `limit` defaults to 3, the same cap
@@ -260,12 +263,13 @@ def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3) -> tuple[lis
         if clean:
             scope = MinerScope(code=code, field_name=fields, hole_section=hole_section,
                                formation=formation, clean_wells=frozenset(clean))
-            found = mine_mitigations(store, scope, limit)
+            found = mine_mitigations(store, scope, limit, keywords=keywords)
             if found:
                 return [m.to_dict() for m in found], MITIGATIONS_HEADING_AVOIDED
 
     broad = MinerScope(code=code, field_name=fields, hole_section=hole_section, formation=formation)
-    return [m.to_dict() for m in mine_mitigations(store, broad, limit)], MITIGATIONS_HEADING_GENERAL
+    mitigations = mine_mitigations(store, broad, limit, keywords=keywords)
+    return [m.to_dict() for m in mitigations], MITIGATIONS_HEADING_GENERAL
 
 
 def verify_citations(text: str, pack: list[dict[str, Any]], store: Store) -> list[str]:
@@ -326,7 +330,10 @@ def ask(
     narrator: Narrator | None = None,
     top_k: int = DEFAULT_TOP_K,
     spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_DAY,
+    keywords: Mapping[str, list[str]] | None = None,
 ) -> Answer:
+    """`keywords` is the mitigation miner's own configuration (see `miner.mine_mitigations`); a
+    resolved `settings.Settings`' own `taxonomy.keywords`, default the canonical template's own."""
     narrator = narrator or OfflineNarrator()
     plan = plan_query(question, store)
     if plan.unmatched:
@@ -339,7 +346,7 @@ def ask(
         return _abstain(question, plan, {"filters": applied}, narrator)
 
     cited_sources = sources[:FIGURE_SOURCE_LIMIT]
-    mitigations, mitigations_heading = _mitigations_for(store, plan)
+    mitigations, mitigations_heading = _mitigations_for(store, plan, keywords=keywords)
     terms = quote_terms(question, plan)
     figure_pack = _figure_source_pack(store, plan, cited_sources, terms)
     hits = _quote_once(hits, figure_pack)
