@@ -42,6 +42,14 @@ DISCLAIMER = ("Decision support built from the offset archive. Review by a quali
              "engineer is required.")
 
 
+class MissingDdrDataError(Exception):
+    """`build_brief` on a field whose NPT ledger (from a CSV-only ingest, most likely) has rows
+    but no daily reports to compute exposed-well denominators (drilling days, hole section and
+    formation exposure) from. Silently returning an empty risk register would hide that NPT
+    behind a brief that looks like a clean field, so this is raised instead (the CLI
+    turns it into exit code 3)."""
+
+
 def _pattern_terms(pattern: Pattern) -> list[str]:
     """The terms a quote for a pattern is scored on: its code, hole section and formation."""
     return tokenize(f"{pattern.code} {pattern.hole_section} {pattern.formation}")
@@ -109,8 +117,8 @@ def _applies(pattern: Pattern, plan_rig: str | None, plan_mwd: str | None) -> st
     Always `applies` for an interval risk: it does not depend on rig or tool.
     For an equipment risk: `does_not_apply` when the plan names a different
     rig or tool, `not_specified` when the plan gives none, `applies`
-    otherwise (spec: "When the flag is not given, equipment risks count as
-    applying and are marked 'plan did not specify'").
+    otherwise. When the flag is not given, the equipment risk still counts as
+    applying and is marked "plan did not specify".
     """
     if pattern.scope != "equipment":
         return "applies"
@@ -194,7 +202,16 @@ def build_brief(
     """`risk_filters=False` (`eval --no-risk-filters`) drops the lift gate
     (`min_lift=0`) and lets the unavoidable codes back in, the baseline the
     filters are measured against; every other threshold, and the TD and
-    max-risks cuts below, stay the same."""
+    max-risks cuts below, stay the same.
+
+    Raises:
+        MissingDdrDataError: `field_name` has NPT ledger rows but no daily reports.
+    """
+    if store.npt(field_name=field_name) and not store.documents(field_name=field_name, doc_type="ddr"):
+        raise MissingDdrDataError(
+            f"field {field_name!r} has NPT ledger rows but no daily drilling reports; a risk "
+            "brief needs daily reports to compute exposed-well statistics"
+        )
     if risk_filters:
         patterns = find_patterns(store, field_name)
     else:

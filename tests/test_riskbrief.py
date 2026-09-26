@@ -15,7 +15,7 @@ import pytest
 
 import analytics_ledger as ledger
 from wellbrief import riskbrief
-from wellbrief.models import Document
+from wellbrief.models import Document, NptEvent
 from wellbrief.store import Store
 
 
@@ -215,3 +215,27 @@ def test_a_clean_wells_mitigation_is_quoted_and_cited(tmp_path: Path) -> None:
     assert cited["EOWR-RB-106"] == rig_repair.mitigations[0]
     check = riskbrief.verify_brief(brief, store)
     assert check["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# `MissingDdrDataError`: a field with NPT ledger rows but no daily reports
+# (the CLI turns this into exit code 3), a fresh store since `store` has no such field.
+# ---------------------------------------------------------------------------
+
+def test_ledger_rows_but_no_ddrs_raises_missing_ddr_data(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_npt([NptEvent(
+        doc_id="ledger.csv-r2", well="ORD-501", field_name="Orrindale", date="2026-01-01",
+        code="STUCK_PIPE", hours=12.5, hole_section='17 1/2"', formation="Keldra Salt",
+        depth_m=1400.0, mud_weight_sg=0.0, rig="", description="Packed off.",
+    )])
+    with pytest.raises(riskbrief.MissingDdrDataError, match="Orrindale"):
+        riskbrief.build_brief(store, "ORD-NEXT", "Orrindale", 3100.0)
+
+
+def test_a_field_with_no_data_at_all_does_not_raise_missing_ddr_data(tmp_path: Path) -> None:
+    # An empty field (nothing ingested yet) is a different, unremarkable case: an empty
+    # risk register, not the "ledger without reports" error.
+    store = Store(tmp_path / "wellbrief.db")
+    brief = riskbrief.build_brief(store, "ORD-NEXT", "Orrindale", 3100.0)
+    assert brief.risks == []

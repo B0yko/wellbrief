@@ -186,6 +186,33 @@ class Store:
         self.conn.commit()
         return len(rows)
 
+    def delete_documents(self, doc_ids: Iterable[str]) -> int:
+        """Remove documents (and their chunks and NPT events) by id.
+
+        Used by incremental ingest when a changed file's set of document ids shrinks or moves
+        (a CSV ledger that loses rows, or a file whose stem-collision hash changes): `put_documents`
+        / `put_chunks` / `put_npt` only ever replace a document that is still produced, so an id no
+        longer produced needs an explicit delete or it would linger forever.
+        """
+        ids = sorted(set(doc_ids))
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        self.conn.execute(f"DELETE FROM npt_events WHERE doc_id IN ({placeholders})", ids)
+        self.conn.execute(f"DELETE FROM chunks WHERE doc_id IN ({placeholders})", ids)
+        deleted = self.conn.execute(f"DELETE FROM documents WHERE doc_id IN ({placeholders})", ids).rowcount
+        self.conn.commit()
+        return deleted
+
+    def delete_file(self, path: str) -> None:
+        """Remove one `files` row and every document it produced (`--prune`, or a file replaced
+        by a different set of documents). A no-op when `path` is not on record."""
+        record = self.get_file(path)
+        if record is not None:
+            self.delete_documents(record.doc_ids)
+        self.conn.execute("DELETE FROM files WHERE path=?", (path,))
+        self.conn.commit()
+
     def chunks(self, field_name: str | None = None, doc_id: str | None = None) -> list[Chunk]:
         sql = "SELECT c.chunk_id, c.doc_id, c.n, c.start, c.end, c.text FROM chunks c"
         clauses, params = [], []

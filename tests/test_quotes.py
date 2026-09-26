@@ -424,6 +424,27 @@ def test_entries_only_apply_to_daily_reports() -> None:
 
 
 # ---------------------------------------------------------------------------
+# A CSV ledger row: the quote is the whole row, never a sub-sentence
+# ---------------------------------------------------------------------------
+
+def test_a_csv_row_is_quoted_whole_even_with_several_sentences_in_its_description() -> None:
+    # Two sentences after the first period: the general sentence-splitting `best_passage`
+    # falls back to would otherwise cut this comma-separated record apart at "casing.".
+    row = ('ORD-103,2022-03-07,STUCK_PIPE,23.3,Orrindale,1062,"17 1/2""",Keldra Salt,Orrin-1,'
+          '"String packed off at 1,062 m while pulling out of hole for the casing. '
+          'Salt creep at 1.32 sg across Keldra Salt. Working pipe and jarring."')
+    quote = evidence_quote(doc(row, "csv"), tokenize("stuck pipe on Orrindale"))
+    assert quote == row
+
+
+def test_a_csv_row_is_quoted_whole_regardless_of_matching_npt_entries() -> None:
+    # `entries` only ever steers a "ddr"; a "csv" document is quoted whole either way.
+    row = "ORD-501,2026-01-01,STUCK_PIPE,12.5,Orrindale,1400,17 1/2\",Keldra Salt,Orrin-1,Packed off."
+    stuck = entry("STUCK_PIPE", 12.5, 1400, "Packed off.")
+    assert evidence_quote(doc(row, "csv"), [], [stuck]) == row
+
+
+# ---------------------------------------------------------------------------
 # In answers
 # ---------------------------------------------------------------------------
 
@@ -577,7 +598,7 @@ def test_each_quote_comes_from_the_passage_its_document_type_calls_for(
             entries = store.npt(doc_id=d.doc_id)
             coded = [e for e in entries if e.code in codes]
             if d.doc_type == "ddr" and coded:
-                # The spec rule: the description of an entry of the asked code.
+                # Ground truth: the description of an entry of the asked code.
                 ok = c.quote in {squash(e.description) for e in coded}
             elif d.doc_type == "ddr" and entries and (_uses_ledger(a.query_plan) or c.doc_id in sources):
                 ok = c.quote in {squash(e.description) for e in entries}

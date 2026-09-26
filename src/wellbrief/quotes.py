@@ -490,7 +490,13 @@ def evidence_quote(doc: Document, terms: Iterable[str], entries: Sequence[NptEve
     start of the text when there is no such heading). Without such an entry,
     or when no description is found in the text, the best content passage is
     quoted instead (`best_passage`).
+
+    A CSV ledger row is quoted in its entirety: it is already one citable
+    line, and `best_passage`'s sentence splitting is built for wrapped prose, so it would
+    cut a comma-separated record apart at the first period inside its description field.
     """
+    if doc.doc_type == "csv":
+        return _clip(_span_text(doc.text, 0, len(doc.text)))
     tokens = list(terms)
     wanted = _terms(tokens)
     if doc.doc_type == "ddr" and entries:

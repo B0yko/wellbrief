@@ -174,6 +174,59 @@ def test_put_npt_leaves_other_documents_events_alone(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# delete_documents / delete_file
+# ---------------------------------------------------------------------------
+
+
+def test_delete_documents_removes_the_document_its_chunks_and_its_events(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([_doc("DDR-1", "W-1", "Field", "text" * 2000)])
+    store.put_npt([_event("DDR-1", "STUCK_PIPE", 23.5)])
+    assert store.get_document("DDR-1") is not None
+    assert store.chunks(doc_id="DDR-1")
+    assert store.npt(doc_id="DDR-1")
+
+    deleted = store.delete_documents(["DDR-1"])
+
+    assert deleted == 1
+    assert store.get_document("DDR-1") is None
+    assert store.chunks(doc_id="DDR-1") == []
+    assert store.npt(doc_id="DDR-1") == []
+
+
+def test_delete_documents_leaves_other_documents_alone(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([_doc("DDR-1", "W-1", "Field", "a"), _doc("DDR-2", "W-1", "Field", "b")])
+    store.delete_documents(["DDR-1"])
+    assert store.get_document("DDR-1") is None
+    assert store.get_document("DDR-2") is not None
+
+
+def test_delete_documents_with_no_ids_is_a_no_op(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([_doc("DDR-1", "W-1", "Field", "text")])
+    assert store.delete_documents([]) == 0
+    assert store.get_document("DDR-1") is not None
+
+
+def test_delete_file_removes_its_documents_and_its_files_row(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([_doc("DDR-1", "W-1", "Field", "text")])
+    store.put_files([FileRecord("DDR-1.txt", "sha1", 4, 0.0, ["DDR-1"], "ingested", None, "Field")])
+
+    store.delete_file("DDR-1.txt")
+
+    assert store.get_file("DDR-1.txt") is None
+    assert store.get_document("DDR-1") is None
+
+
+def test_delete_file_is_a_no_op_for_an_unknown_path(tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+    store.delete_file("nope.txt")  # must not raise
+    assert store.get_file("nope.txt") is None
+
+
+# ---------------------------------------------------------------------------
 # files table
 # ---------------------------------------------------------------------------
 

@@ -53,7 +53,8 @@ def test_ingest_status_ask_brief_end_to_end(
         home: Path, corpus_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["ingest", str(corpus_dir)]) == 0
     ingested = capsys.readouterr().out
-    assert "Ingested 1446 documents" in ingested
+    assert "1446 file(s) seen, 1446 ingested" in ingested
+    assert "documents: 1446" in ingested
     assert "Indexed:" in ingested
 
     # The workspace's on-disk layout: one db file, plus a bm25 index per field directory.
@@ -125,3 +126,42 @@ def test_the_workspace_flag_and_env_var_select_different_workspaces(
     assert cli.main(["--workspace", "flag-wins", "status"]) == 0
     status = capsys.readouterr().out
     assert "flag-wins" in status
+
+
+def test_ingest_dry_run_writes_nothing(home: Path, corpus_dir: Path,
+                                       capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["ingest", str(corpus_dir), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Would ingest" in out
+    assert cli.main(["--json", "status"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["fields"] == []
+
+
+def test_ingest_prune_removes_a_deleted_file(home: Path, tmp_path: Path,
+                                             capsys: pytest.CaptureFixture[str]) -> None:
+    folder = tmp_path / "prune-corpus"
+    assert cli.main(["corpus", "generate", "--out", str(folder), "--scale", "1"]) == 0
+    capsys.readouterr()
+    assert cli.main(["ingest", str(folder)]) == 0
+    capsys.readouterr()
+    removed = next(folder.glob("DDR-ORD-101-*.txt"))
+    removed.unlink()
+
+    assert cli.main(["ingest", str(folder), "--prune"]) == 0
+    out = capsys.readouterr().out
+    assert "1 pruned" in out
+
+
+def test_brief_exits_3_when_a_field_has_ledger_rows_but_no_ddrs(
+        home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    folder = tmp_path / "csv-only"
+    folder.mkdir()
+    (folder / "ledger.csv").write_text(
+        "well,date,code,hours,field\nORD-501,2026-01-01,STUCK_PIPE,12.5,Orrindale\n", encoding="utf-8")
+    assert cli.main(["ingest", str(folder)]) == 0
+    capsys.readouterr()
+
+    assert cli.main(["brief", "--field", "Orrindale", "--well", "ORD-NEXT", "--td", "3100"]) == 3
+    err = capsys.readouterr().err
+    assert "no daily drilling reports" in err

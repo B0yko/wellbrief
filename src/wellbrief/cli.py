@@ -58,25 +58,49 @@ def _emit(payload, as_json: bool, text: str = "") -> None:
 # commands
 # --------------------------------------------------------------------------
 
+def _coverage_lines(coverage: ingest_mod.Coverage, path: Path, dry_run: bool) -> list[str]:
+    verb = "Would ingest" if dry_run else "Ingested"
+    lines = [
+        f"{verb} from {path}: {coverage.files_seen} file(s) seen, {coverage.ingested} ingested, "
+        f"{coverage.unchanged} unchanged, {coverage.pruned} pruned",
+        f"  documents: {coverage.documents}   chunks: {coverage.chunks}   "
+        f"NPT events: {coverage.npt_events}",
+    ]
+    if coverage.duplicates_merged:
+        lines.append(f"  CSV/DDR duplicates merged: {coverage.duplicates_merged}")
+    for message in coverage.csv_row_errors:
+        lines.append(f"  CSV row error: {message}")
+    for message in coverage.csv_row_warnings:
+        lines.append(f"  CSV row warning: {message}")
+    for skipped in coverage.skipped:
+        lines.append(f"  skipped {skipped.path}: {skipped.reason}")
+    extracted = {k: v for k, v in coverage.ddr_extraction.items() if v is not None}
+    if extracted:
+        lines.append("  DDR extraction share: "
+                     + ", ".join(f"{k} {v * 100:.0f}%" for k, v in extracted.items()))
+    return lines
+
+
 def cmd_ingest(args) -> int:
     ws = _workspace(args)
     store = ws.open_store()
-    docs = ingest_mod.load_corpus_dir(args.path)
-    if not docs:
-        print(f"No .txt files found in {args.path}", file=sys.stderr)
+    try:
+        coverage = ingest_mod.ingest_folder(store, args.path, field=args.field, prune=args.prune,
+                                            dry_run=args.dry_run)
+    except OSError as exc:
+        print(f"wellbrief ingest: {exc}", file=sys.stderr)
         store.close()
-        return 1
-    if args.replace:
-        store.reset()
-    stats = ingest_mod.ingest(store, docs)
-    print(f"Ingested {stats['documents']} documents, {stats['chunks']} chunks and "
-          f"{stats['npt_events']} NPT events from {args.path} into workspace '{ws.name}'")
-    workspace_mod.check_field_slugs(store.field_names())
-    touched = sorted({d.field_name for d in docs})
-    built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend) for f in touched]
-    if built:
-        print("Indexed: " + "; ".join(
-            f"{i.field} ({i.manifest.chunks} chunks, {i.manifest.build_seconds:.3f}s)" for i in built))
+        return 2
+    lines = _coverage_lines(coverage, args.path, args.dry_run)
+    if not args.dry_run and coverage.fields:
+        workspace_mod.check_field_slugs(store.field_names())
+        built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend)
+                for f in sorted(coverage.fields)]
+        if built:
+            lines.append("Indexed: " + "; ".join(
+                f"{i.field} ({i.manifest.chunks} chunks, {i.manifest.build_seconds:.3f}s)" for i in built))
+    payload = {**coverage.to_dict(), "workspace": ws.name, "path": str(args.path), "dry_run": args.dry_run}
+    _emit(payload, args.json, "\n".join(lines))
     store.close()
     return 0
 
@@ -182,11 +206,16 @@ def cmd_brief(args) -> int:
     index_hash = workspace_mod.index_files_hash(ws, args.field)
     provenance = riskbrief.build_provenance(store, args.field, args.spread_rate, narrator.name,
                                             verification_placeholder, index_manifest_hash=index_hash)
-    brief = riskbrief.build_brief(
-        store, args.well, args.field, args.td,
-        spread_rate=args.spread_rate, narrator=narrator, max_risks=args.max_risks,
-        plan_rig=args.rig, plan_mwd=args.mwd, provenance=provenance,
-    )
+    try:
+        brief = riskbrief.build_brief(
+            store, args.well, args.field, args.td,
+            spread_rate=args.spread_rate, narrator=narrator, max_risks=args.max_risks,
+            plan_rig=args.rig, plan_mwd=args.mwd, provenance=provenance,
+        )
+    except riskbrief.MissingDdrDataError as exc:
+        print(f"wellbrief brief: {exc}", file=sys.stderr)
+        store.close()
+        return 3
     check = riskbrief.verify_brief(brief, store)
     verification_placeholder.update(check)   # the provenance block carries the same dict
 
@@ -374,7 +403,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("ingest", help="load a directory of well files into the workspace")
     sp.add_argument("path", type=Path)
-    sp.add_argument("--replace", action="store_true", help="clear the store first")
+    sp.add_argument("--field", help="field for a document with no field detected in its own text "
+                                    "(default: 'unassigned')")
+    sp.add_argument("--prune", action="store_true",
+                    help="remove documents whose files are no longer in the folder")
+    sp.add_argument("--dry-run", action="store_true",
+                    help="print the coverage table without writing anything")
     sp.set_defaults(func=cmd_ingest)
 
     sp = sub.add_parser("index", help="rebuild the per-field retrieval indexes")
