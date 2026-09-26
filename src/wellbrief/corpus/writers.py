@@ -3,19 +3,27 @@
 A writer receives the rendered lines and a target path and produces one
 file. `WRITERS` maps a writer name to its file suffix and function, and
 `FORMATS` maps a corpus format (the `--formats` option) to the writer used
-for each document type. Plain text is the only writer in this version; a PDF
-or DOCX writer is added with `register_writer()` and a `FORMATS` entry.
+for each document type: `txt` (the default), `pdf` and `docx` write every
+document type in that one format, and `mixed` writes daily reports as
+`.txt`, end-of-well reports as `.pdf` and incident reports as `.docx`, so
+that a `demo` or a `corpus generate --formats mixed` corpus exercises every
+reader ingestion has. A writer for another format is added with
+`register_writer()` and a `FORMATS` entry.
 """
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from .docxwriter import write_docx
 from .fields import FIELDS
+from .pdfwriter import write_pdf
 from .records import Corpus
 from .truth import TRUTH_FILENAME, build_truth, write_truth
 
@@ -33,11 +41,25 @@ def write_txt(lines: Sequence[str], path: Path) -> None:
     path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
 
 
-WRITERS: dict[str, Writer] = {"txt": Writer(".txt", write_txt)}
+WRITERS: dict[str, Writer] = {
+    "txt": Writer(".txt", write_txt),
+    "pdf": Writer(".pdf", write_pdf),
+    "docx": Writer(".docx", write_docx),
+}
 
 FORMATS: dict[str, dict[str, str]] = {
     "txt": {"ddr": "txt", "eowr": "txt", "incident": "txt"},
+    "pdf": {"ddr": "pdf", "eowr": "pdf", "incident": "pdf"},
+    "docx": {"ddr": "docx", "eowr": "docx", "incident": "docx"},
+    "mixed": {"ddr": "txt", "eowr": "pdf", "incident": "docx"},
 }
+
+LEDGER_FILENAME = "npt-ledger.csv"
+
+# The default column layout `readers.csvledger.read_ledger` expects with no `[csv.columns]`
+# mapping, so the generated ledger can be read back (and ingested) with no configuration.
+LEDGER_COLUMNS = ("well", "date", "code", "hours", "field", "depth", "section", "formation", "rig",
+                 "description")
 
 # Names the generator writes: documents of its own fields, the sidecar and the
 # NPT ledger. A directory is treated as an earlier corpus only when it holds
@@ -82,8 +104,33 @@ def _prepare(out_dir: Path) -> None:
         p.unlink()
 
 
-def write_corpus(corpus: Corpus, out_dir: Path | str, formats: str = "txt") -> list[Path]:
-    """Write every document and the ground-truth sidecar. Returns the written paths."""
+def _ledger_rows(corpus: Corpus) -> list[list[str]]:
+    """Every DDR NPT row of the corpus, well by well and day by day (deterministic:
+    both orders come straight from the generator's own, seed-deterministic output)."""
+    return [
+        [w.name, d.day.isoformat(), e.code, f"{e.hours:.1f}", w.spec.name, str(e.depth_m),
+         d.section.size, e.formation, w.rig, e.description]
+        for w in corpus.wells for d in w.days for e in d.entries
+    ]
+
+
+def write_ledger_csv(corpus: Corpus, path: Path) -> None:
+    """Write every DDR NPT row of `corpus` as an NPT ledger CSV (`corpus generate --ledger-csv`),
+    in `LEDGER_COLUMNS` order so it reads back with `readers.csvledger.read_ledger`'s defaults."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(LEDGER_COLUMNS)
+    writer.writerows(_ledger_rows(corpus))
+    path.write_bytes(buffer.getvalue().encode("utf-8"))
+
+
+def write_corpus(corpus: Corpus, out_dir: Path | str, formats: str = "txt",
+                 ledger_csv: bool = False) -> list[Path]:
+    """Write every document and the ground-truth sidecar. Returns the written paths.
+
+    `ledger_csv` also writes `LEDGER_FILENAME` with every DDR NPT row:
+    the format-parity evaluation cases and the fresh-clone CSV check ingest it on its own.
+    """
     if formats not in FORMATS:
         raise ValueError(f"unknown corpus format {formats!r}; choose from {', '.join(sorted(FORMATS))}")
     plan = FORMATS[formats]
@@ -97,6 +144,10 @@ def write_corpus(corpus: Corpus, out_dir: Path | str, formats: str = "txt") -> l
         writer.write(doc.lines, path)
         files[doc.doc_id] = path.name
         written.append(path)
+    if ledger_csv:
+        ledger_path = out / LEDGER_FILENAME
+        write_ledger_csv(corpus, ledger_path)
+        written.append(ledger_path)
     written.append(write_truth(out, build_truth(corpus, files, formats)))
     return written
 
@@ -123,6 +174,6 @@ def manifest_hash(out_dir: Path | str, files: Sequence[Path] | None = None) -> s
 
 
 __all__ = [
-    "FORMATS", "WRITERS", "OutputDirError", "Writer", "manifest_hash",
-    "register_writer", "write_corpus", "write_txt",
+    "FORMATS", "LEDGER_COLUMNS", "LEDGER_FILENAME", "WRITERS", "OutputDirError", "Writer",
+    "manifest_hash", "register_writer", "write_corpus", "write_ledger_csv", "write_txt",
 ]

@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from wellbrief.config import SYNTHETIC_FOOTER
+from wellbrief.corpus import build_corpus, write_corpus
 from wellbrief.corpus.docxwriter import write_docx
 from wellbrief.corpus.pdfwriter import write_pdf
 from wellbrief.ingest import ingest_folder
@@ -489,3 +492,29 @@ def test_a_pdf_with_no_text_layer_is_skipped_with_its_reason(tmp_path: Path) -> 
     assert coverage.documents == 0
     assert len(coverage.skipped) == 1
     assert "text layer" in coverage.skipped[0].reason
+
+
+# ---------------------------------------------------------------------------
+# Whole generated corpus, rendered "mixed" with an NPT ledger CSV
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def mixed_corpus_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    out = tmp_path_factory.mktemp("mixed-corpus")
+    write_corpus(build_corpus(), out, "mixed", ledger_csv=True)
+    return out
+
+
+def test_a_mixed_format_corpus_with_a_ledger_ingests_without_doubling_npt_hours(
+        mixed_corpus_dir: Path, tmp_path: Path) -> None:
+    store = Store(tmp_path / "wellbrief.db")
+
+    coverage = ingest_folder(store, mixed_corpus_dir)
+
+    assert coverage.duplicates_merged == coverage.npt_events  # every CSV row matched its DDR entry
+    assert store.npt_summary([])["events"] == coverage.npt_events
+    assert store.documents(doc_type="ddr")
+    assert store.documents(doc_type="eowr")
+    assert store.documents(doc_type="incident")
+    assert store.documents(doc_type="csv")

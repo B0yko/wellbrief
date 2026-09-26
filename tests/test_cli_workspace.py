@@ -153,6 +153,20 @@ def test_ingest_prune_removes_a_deleted_file(home: Path, tmp_path: Path,
     assert "1 pruned" in out
 
 
+def test_corpus_generate_formats_and_ledger_csv(tmp_path: Path,
+                                                capsys: pytest.CaptureFixture[str]) -> None:
+    out = tmp_path / "mixed"
+    assert cli.main(["corpus", "generate", "--out", str(out), "--scale", "1",
+                     "--formats", "mixed", "--ledger-csv"]) == 0
+    printed = capsys.readouterr().out
+    assert "format mixed" in printed
+    assert "NPT ledger CSV" in printed
+    assert (out / "npt-ledger.csv").exists()
+    assert any(out.glob("EOWR-*.pdf"))
+    assert any(out.glob("INC-*.docx"))
+    assert any(out.glob("DDR-*.txt"))
+
+
 def test_brief_exits_3_when_a_field_has_ledger_rows_but_no_ddrs(
         home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     folder = tmp_path / "csv-only"

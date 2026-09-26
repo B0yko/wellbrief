@@ -315,7 +315,7 @@ def cmd_digest(args) -> int:
 def cmd_corpus_generate(args) -> int:
     try:
         generated = corpus.build_corpus(seed=args.seed, scale=args.scale)
-        written = corpus.write_corpus(generated, args.out, "txt")
+        written = corpus.write_corpus(generated, args.out, args.formats, ledger_csv=args.ledger_csv)
     except (ValueError, corpus.OutputDirError) as exc:
         print(f"wellbrief corpus generate: {exc}", file=sys.stderr)
         return 2
@@ -327,7 +327,8 @@ def cmd_corpus_generate(args) -> int:
         "out": str(args.out),
         "seed": args.seed,
         "scale": args.scale,
-        "formats": "txt",
+        "formats": args.formats,
+        "ledger_csv": args.ledger_csv,
         "wells": len(generated.wells),
         "documents": len(generated.documents),
         "documents_by_type": dict(sorted(by_type.items())),
@@ -337,13 +338,15 @@ def cmd_corpus_generate(args) -> int:
         "manifest_hash": corpus.manifest_hash(args.out, written),
     }
     lines = [
-        f"Generated the synthetic corpus in {args.out} (seed {args.seed}, scale {args.scale}, format txt).",
+        f"Generated the synthetic corpus in {args.out} (seed {args.seed}, scale {args.scale}, "
+        f"format {args.formats}{', with an NPT ledger CSV' if args.ledger_csv else ''}).",
         f"  wells        : {payload['wells']}",
         f"  documents    : {payload['documents']:,} ("
         + ", ".join(f"{t} {n:,}" for t, n in payload["documents_by_type"].items()) + ")",
         f"  NPT events   : {payload['npt_events']:,} ("
         + ", ".join(f"{f} {n:,}" for f, n in payload["npt_events_by_field"].items()) + ")",
-        f"  files        : {len(written):,} (documents plus the ground-truth sidecar)",
+        f"  files        : {len(written):,} (documents plus the ground-truth sidecar"
+        + (" and the NPT ledger CSV)" if args.ledger_csv else ")"),
         f"  manifest     : sha256:{payload['manifest_hash']}",
     ]
     _emit(payload, args.json, "\n".join(lines))
@@ -472,6 +475,11 @@ def build_parser() -> argparse.ArgumentParser:
     gp.add_argument("--scale", type=int, default=1,
                     help=f"multiply the number of wells per field, 1 to {MAX_SCALE} "
                          "(default 1: 28 + 14 wells)")
+    gp.add_argument("--formats", choices=sorted(corpus.FORMATS), default="txt",
+                    help="txt (default) or pdf or docx for every document, or mixed: daily reports "
+                         "as .txt, end-of-well reports as .pdf, incident reports as .docx")
+    gp.add_argument("--ledger-csv", action="store_true",
+                    help="also write npt-ledger.csv with every DDR NPT row")
     gp.set_defaults(func=cmd_corpus_generate)
     return p
 

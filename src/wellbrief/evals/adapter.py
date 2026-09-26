@@ -25,7 +25,7 @@ from typing import Any
 from .. import __version__
 from ..analytics import find_patterns, interval_patterns
 from ..corpus import FORMATS, build_corpus, write_corpus
-from ..ingest import ingest, load_corpus_dir
+from ..ingest import ingest_folder
 from ..llm import OfflineNarrator
 from ..miner import classify_many
 from ..qa import ask as product_ask
@@ -110,9 +110,7 @@ def generate_corpus(out_dir: Path, seed: int, formats: str = "txt", ledger_csv: 
     """Write the synthetic corpus of `seed` (and its ground truth) to `out_dir`."""
     if formats not in FORMATS:
         raise NotSupported(f"the corpus generator cannot write the {formats!r} format yet")
-    if ledger_csv:
-        raise NotSupported("the corpus generator cannot write an NPT ledger CSV yet")
-    write_corpus(build_corpus(seed=seed), out_dir, formats)
+    write_corpus(build_corpus(seed=seed), out_dir, formats, ledger_csv=ledger_csv)
 
 
 def render(out_dir: Path, seed: int, fmt: str) -> Path:
@@ -137,12 +135,13 @@ _DRIVER_KINDS = {"mud_weight_sg": "mud_weight", "rig": "rig", "tool_string": "to
 
 
 class Workspace:
-    """A product store built from one generated corpus, in a directory of its own."""
+    """A product store built from one generated corpus (any rendering `ingest_folder` reads:
+    `.txt`, `.pdf`, `.docx` or a lone `.csv` NPT ledger), in a directory of its own."""
 
     def __init__(self, corpus_dir: Path, work_dir: Path) -> None:
         work_dir.mkdir(parents=True, exist_ok=True)
         self.store = Store(work_dir / "wellbrief.db")
-        ingest(self.store, load_corpus_dir(corpus_dir))
+        ingest_folder(self.store, corpus_dir)
         self.searcher = build_searcher(self.store, "offline")
         self.narrator = OfflineNarrator()
 
