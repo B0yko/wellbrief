@@ -1,0 +1,23 @@
+# Column mapping for examples/npt-ledger.csv: a site ledger with its own headers, a ";"
+# delimiter (an Excel "sep=;" first line picks it automatically) and day.month.year dates.
+#
+#   wellbrief ingest examples --config examples/npt-ledger.toml
+#
+# `ingest` reads a folder, not a lone file, so the mapping is named and passed with `--config`
+# here rather than sitting next to the CSV as its own `wellbrief.toml` (which is what
+# examples/alt-template/ does instead, since that folder holds nothing else); either way works.
+# See docs/configuration.md for every key `wellbrief.toml` understands.
+
+[csv]
+date_format = "%d.%m.%Y"
+
+[csv.columns]
+well = "Well Name"
+date = "Event Date"
+code = "NPT Code"
+hours = "Duration (h)"
+depth = "Depth (m)"
+section = "Hole Section"
+formation = "Formation"
+description = "Remarks"
+rig = "Rig Name"

@@ -1,0 +1,22 @@
+sep=;
+Well Name;Event Date;NPT Code;Duration (h);Depth (m);Hole Section;Formation;Remarks;Rig Name
+THR-101;10.02.2026;STUCK_PIPE;14,5;1402;"12 1/4""";Dunraven Marl;String packed off while pulling out of hole.;Thornmere-2
+THR-101;14.02.2026;LOST_CIRCULATION;9,0;1655;"12 1/4""";Dunraven Marl;Partial losses while drilling ahead.;Thornmere-2
+THR-101;18.02.2026;CEMENT_ISSUE;3,5;;;;Cement head seal required replacement before displacement.;Thornmere-2
+THR-102;22.02.2026;RIG_REPAIR;11,0;;;;Mud pump fluid end changed.;Thornmere-2
+THR-102;24.02.2026;WAIT_ON_WEATHER;6,0;;;;Standing by for a lightning warning to clear.;Thornmere-2
+THR-102;28.02.2026;STUCK_PIPE;19,5;1780;"12 1/4""";Dunraven Marl;String packed off on the trip out through the marl.;Thornmere-2
+THR-102;03.03.2026;HOLE_CLEANING;5,5;1810;"12 1/4""";Dunraven Marl;Extended circulating and sweeps to clear cuttings beds.;Thornmere-2
+THR-103;06.03.2026;BOP_TEST_FAILURE;2,0;;;;Annular preventer failed the low pressure test and was reset.;Thornmere-3
+THR-103;09.03.2026;WAIT_ON_MATERIALS;8,0;;;;Waiting on barite delivery from the shore base.;Thornmere-3
+THR-103;12.03.2026;DOWNHOLE_TOOL_FAILURE;13,0;2210;"8 1/2""";Halden Sandstone;MWD tool failed above its rated temperature.;Thornmere-3
+THR-103;15.03.2026;FISHING;22,0;2225;"8 1/2""";Halden Sandstone;Fishing for a parted drill collar.;Thornmere-3
+THR-104;18.03.2026;THIRD_PARTY_STANDBY;4,5;;;;Wireline crew standing by for rig repairs.;Thornmere-3
+THR-104;20.03.2026;HSE_STOP;1,5;;;;Stop work called for a dropped-object hazard.;Thornmere-3
+THR-104;23.03.2026;WELLBORE_INSTABILITY;10,0;1920;"12 1/4""";Dunraven Marl;Tight hole and caving reported on connections.;Thornmere-2
+THR-101;27.03.2026;STUCK_PIPE;7,5;1690;"12 1/4""";Dunraven Marl;Brief pack-off cleared by working the string.;Thornmere-2
+THR-102;30.03.2026;LOST_CIRCULATION;12,5;1840;"12 1/4""";Dunraven Marl;Total losses on entering a natural fracture.;Thornmere-2
+THR-103;02.04.2026;RIG_REPAIR;6,5;;;;Top drive hydraulic leak repaired.;Thornmere-3
+THR-104;05.04.2026;CEMENT_ISSUE;2,5;;;;Cement bumped plug late - job re-run.;Thornmere-3
+THR-101;08.04.2026;WAIT_ON_WEATHER;9,0;;;;Standing by for high seas to moderate.;Thornmere-2
+THR-102;11.04.2026;HOLE_CLEANING;4,0;1855;"12 1/4""";Dunraven Marl;Wiper trip and sweeps ahead of casing.;Thornmere-2

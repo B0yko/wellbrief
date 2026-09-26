@@ -1,0 +1,30 @@
+DAILY DRILLING REPORT
+Operator: Fenwick Resources    Field: Marrow Deep    Well: MRD-202
+Rig: Marrow-1    Report No: 001    Date: 2026-04-12
+
+DEPTH
+  Depth at start        : 2,100 m MD
+  MD at 24:00           : 2,205 m MD
+  Progress              : 105 m
+  Hole size             : 12 1/4"
+  Lithology at bit      : Ashgrove Shale
+
+MUD
+  MW                    : 1.39 sg
+  ECD                   : 1.45 sg
+
+DIRECTIONAL
+  MWD                   : Fenwick Downhole FX-2
+
+TIME
+  Productive time       : 2.5 h
+  Non-productive time   : 21.5 h
+
+NPT DETAIL
+  Lost-time code        : SP
+  Duration (hrs)        : 21.5
+  Event depth           : 2,205 m MD
+  Event formation       : Ashgrove Shale
+  Comment               : String packed off at 2,205 m on connection while backreaming through Ashgrove Shale.
+
+Synthetic demonstration document. Operator, fields, wells, rigs and vendors are fictional.

@@ -208,6 +208,46 @@ def test_a_malformed_workspace_toml_exits_cleanly_on_every_command_that_reads_se
     assert "wellbrief.toml" in err and "min_lft" in err and "Traceback" not in err
 
 
+def test_ingest_examples_alt_template_finds_its_own_wellbrief_toml(
+        home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The example used by `test_examples.py`'s equivalence test also works end to end
+    through the CLI, with no `--config` flag: `ingest` reads a folder's own `wellbrief.toml`
+    on its own."""
+    alt_template = Path(__file__).resolve().parents[1] / "examples" / "alt-template"
+    assert cli.main(["ingest", str(alt_template)]) == 0
+    out = capsys.readouterr().out
+    assert "4 file(s) seen, 4 ingested" in out
+    assert "NPT events: 3" in out
+
+    assert cli.main(["--json", "npt", "--field", "Marrow Deep"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["event_count"] == 3
+    assert {row["code"] for row in payload["by_code"]} == {"STUCK_PIPE"}
+
+
+def test_ask_finds_mitigations_on_a_field_ingested_with_its_own_toml(
+        home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """`ask` quotes mitigations for a field ingested through its own `wellbrief.toml` (an
+    `ingest --config` file, or here the ingested folder's own file, per
+    `test_ingest_examples_alt_template_finds_its_own_wellbrief_toml`) even though the bare
+    workspace this test ingests into has no `wellbrief.toml` of its own at all: the miner reads
+    each document's lessons, recommendations and corrective actions from the settings they were
+    actually parsed with at ingest time, not from whatever the workspace's own configuration
+    (here, none) currently says. Regression test: before this was fixed, the miner re-parsed
+    `doc.text` at query time with the workspace's settings, which do not know the alt template's
+    `LESSONS` / `RECOMMENDATIONS FOR NEXT WELL` headings, and silently returned no mitigations."""
+    alt_template = Path(__file__).resolve().parents[1] / "examples" / "alt-template"
+    assert cli.main(["ingest", str(alt_template)]) == 0
+    capsys.readouterr()
+
+    assert not (home / "default" / "wellbrief.toml").exists()
+    assert cli.main(["--json", "ask",
+                     "What went wrong with stuck pipe on MRD-201 in the Marrow Deep field?"]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["mitigations"], "expected at least one mitigation quoted from the alt template"
+    assert any("Hold at least" in m["text"] for m in answer["mitigations"])
+
+
 def test_workspace_toml_retrieval_settings_flow_through_ask(
         home: Path, corpus_dir: Path, monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str]) -> None:

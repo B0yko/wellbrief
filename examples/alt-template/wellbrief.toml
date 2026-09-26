@@ -1,0 +1,29 @@
+# An example site configuration for a report template that differs from wellbrief's own
+# canonical one: different daily-report labels, different end-of-well-report section headings,
+# and the site's own short NPT codes mapped to the built-in taxonomy.
+#
+# Ingest this folder directly to see it in action:
+#
+#   wellbrief ingest examples/alt-template
+#
+# `ingest` finds this file on its own (a folder's own wellbrief.toml is read automatically,
+# highest precedence together with `ingest --config`); nothing else in the folder needs to name
+# it. See docs/configuration.md for every key `wellbrief.toml` understands.
+
+[parse.ddr.labels]
+depth_at_end = "MD at 24:00"
+hole_section = "Hole size"
+formation_at_td = "Lithology at bit"
+weight = "MW"
+npt_code = "Lost-time code"
+npt_hours = "Duration (hrs)"
+npt_depth = "Event depth"
+npt_formation = "Event formation"
+npt_description = "Comment"
+
+[parse.eowr.sections]
+lessons = "LESSONS"
+recommendations = "RECOMMENDATIONS FOR NEXT WELL"
+
+[taxonomy.aliases]
+SP = "STUCK_PIPE"

@@ -1,0 +1,18 @@
+END OF WELL REPORT
+Operator: Fenwick Resources    Field: Marrow Deep    Well: MRD-204
+Rig: Marrow-1    Report No: 012    Date: 2026-04-20
+
+Days on well          : 11
+Total depth           : 2,180 m MD
+Non-productive time   : 4.0 h
+
+NPT BREAKDOWN BY CODE
+  WAIT_ON_WEATHER          4.0 h
+
+LESSONS
+  1. Hold at least 1.42 sg across Ashgrove Shale and monitor trip speed to avoid pack-off.
+
+RECOMMENDATIONS FOR NEXT WELL
+  - Run a wiper trip through Ashgrove Shale before tripping out for casing.
+
+Synthetic demonstration document. Operator, fields, wells, rigs and vendors are fictional.
