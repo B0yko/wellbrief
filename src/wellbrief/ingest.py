@@ -113,9 +113,7 @@ def _wells_from_docs(docs: list[Document]) -> list[Well]:
 
 def bootstrap(store: Store, regenerate: bool = True) -> dict[str, int]:
     """Generate the demo field history and load it end to end."""
-    store.reset()
     wells, docs = corpus.generate(write_files=regenerate)
-    # Drop the generator's own metadata so ingest has to earn it from the text.
-    for d in docs:
-        d.meta = {}
+    store.reset()
+    # The generated documents carry no metadata: ingest earns it from the text.
     return ingest(store, docs, wells)

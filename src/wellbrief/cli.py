@@ -1,8 +1,10 @@
 """Command line interface.
 
-Every command works on the local SQLite store and index files and needs no
-network access. `--json` switches status, ask, risk, npt, patterns, digest
-and eval to machine-readable output.
+Every command needs no network access. `corpus generate` writes the
+synthetic corpus and its ground truth to a directory; every other command
+works on the local SQLite store and index files. `--json` switches status,
+ask, risk, npt, patterns, digest, eval and corpus generate to
+machine-readable output.
 """
 
 from __future__ import annotations
@@ -10,10 +12,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
-from . import __version__, analytics, ingest as ingest_mod, riskbrief
+from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief
 from .config import DB_PATH, DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND
+from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .llm import get_narrator
 from .qa import ask as ask_qa
@@ -198,6 +202,44 @@ def cmd_digest(args) -> int:
     return 0
 
 
+def cmd_corpus_generate(args) -> int:
+    try:
+        generated = corpus.build_corpus(seed=args.seed, scale=args.scale)
+        written = corpus.write_corpus(generated, args.out, "txt")
+    except (ValueError, corpus.OutputDirError) as exc:
+        print(f"wellbrief corpus generate: {exc}", file=sys.stderr)
+        return 2
+    by_type = Counter(d.doc_type for d in generated.documents)
+    events: Counter[str] = Counter()
+    for w in generated.wells:
+        events[w.spec.name] += sum(len(d.entries) for d in w.days)
+    payload = {
+        "out": str(args.out),
+        "seed": args.seed,
+        "scale": args.scale,
+        "formats": "txt",
+        "wells": len(generated.wells),
+        "documents": len(generated.documents),
+        "documents_by_type": dict(sorted(by_type.items())),
+        "npt_events": sum(events.values()),
+        "npt_events_by_field": dict(sorted(events.items())),
+        "files_written": len(written),
+        "manifest_hash": corpus.manifest_hash(args.out, written),
+    }
+    lines = [
+        f"Generated the synthetic corpus in {args.out} (seed {args.seed}, scale {args.scale}, format txt).",
+        f"  wells        : {payload['wells']}",
+        f"  documents    : {payload['documents']:,} ("
+        + ", ".join(f"{t} {n:,}" for t, n in payload["documents_by_type"].items()) + ")",
+        f"  NPT events   : {payload['npt_events']:,} ("
+        + ", ".join(f"{f} {n:,}" for f, n in payload["npt_events_by_field"].items()) + ")",
+        f"  files        : {len(written):,} (documents plus the ground-truth sidecar)",
+        f"  manifest     : sha256:{payload['manifest_hash']}",
+    ]
+    _emit(payload, args.json, "\n".join(lines))
+    return 0
+
+
 def cmd_eval(args) -> int:
     from . import evaluate
     store, searcher = _wire(args)
@@ -268,6 +310,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_digest)
 
     sub.add_parser("eval", help="run the accuracy harness").set_defaults(func=cmd_eval)
+
+    sp = sub.add_parser("corpus", help="synthetic well-file corpus")
+    corpus_sub = sp.add_subparsers(dest="corpus_command", required=True)
+    gp = corpus_sub.add_parser("generate", help="write the synthetic corpus and its ground truth to a directory")
+    gp.add_argument("--out", type=Path, required=True, help="output directory (empty, or a previous corpus)")
+    gp.add_argument("--seed", type=int, default=SEED, help=f"random seed (default {SEED})")
+    gp.add_argument("--scale", type=int, default=1,
+                    help=f"multiply the number of wells per field, 1 to {MAX_SCALE} (default 1: 28 + 14 wells)")
+    gp.set_defaults(func=cmd_corpus_generate)
     return p
 
 
