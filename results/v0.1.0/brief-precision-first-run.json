@@ -1,0 +1,110 @@
+{
+ "metadata": {
+  "wellbrief_version": "0.1.0",
+  "date_utc": "2026-09-26T14:33:20Z",
+  "command": "wellbrief eval --suite brief-precision --out results/v0.1.0/brief-precision-first-run.json",
+  "suites": [
+   "brief-precision"
+  ],
+  "seeds": [
+   20260731
+  ],
+  "options": {
+   "risk_filters": true,
+   "narrator": "offline"
+  },
+  "python": {
+   "version": "3.12.14",
+   "implementation": "CPython"
+  },
+  "hardware": {
+   "cpu": "Apple M5",
+   "ram_gb": 24.0,
+   "os": "macOS 26.6.2",
+   "arch": "arm64"
+  },
+  "git": {
+   "sha": "c861e0195479f23f17b4d76b423dee8dda1f0071",
+   "dirty": false
+  }
+ },
+ "passed_all_gates": false,
+ "summary": [
+  {
+   "suite": "brief-precision",
+   "seed": 20260731,
+   "cases": 3,
+   "passed": 0,
+   "gated": 3,
+   "gated_passed": 0,
+   "informational": 0
+  }
+ ],
+ "results": [
+  {
+   "suite": "brief-precision",
+   "seed": 20260731,
+   "id": "bp-orrindale",
+   "category": "brief-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "4 of 8 listed risks are planted (0.50; patterns G1, G3; filters on; target 0.75)",
+   "metrics": {
+    "listed": 8,
+    "planted": 4,
+    "precision": 0.5,
+    "patterns_covered": [
+     "G1",
+     "G3"
+    ],
+    "risk_filters": true,
+    "not_planted": [
+     "WAIT_ON_MATERIALS (interval: 12 1/4\" Dovrin Shale)",
+     "WAIT_ON_WEATHER (interval: 8 1/2\" Orrindale Sand)",
+     "HOLE_CLEANING (interval: 12 1/4\" Dovrin Shale)",
+     "WAIT_ON_MATERIALS (interval: 8 1/2\" Orrindale Sand)"
+    ]
+   }
+  },
+  {
+   "suite": "brief-precision",
+   "seed": 20260731,
+   "id": "bp-vessra-south",
+   "category": "brief-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "2 of 8 listed risks are planted (0.25; patterns G2, G3; filters on; target 0.75)",
+   "metrics": {
+    "listed": 8,
+    "planted": 2,
+    "precision": 0.25,
+    "patterns_covered": [
+     "G2",
+     "G3"
+    ],
+    "risk_filters": true,
+    "not_planted": [
+     "RIG_REPAIR (interval: 8 1/2\" Vessra Carbonate)",
+     "RIG_REPAIR (interval: 26\" Tessivar Marl)",
+     "RIG_REPAIR (interval: 12 1/4\" Ulvent Claystone)",
+     "RIG_REPAIR (interval: 17 1/2\" Tessivar Marl)",
+     "RIG_REPAIR (interval: 17 1/2\" Ulvent Claystone)",
+     "WAIT_ON_WEATHER (interval: 12 1/4\" Ulvent Claystone)"
+    ]
+   }
+  },
+  {
+   "suite": "brief-precision",
+   "seed": 20260731,
+   "id": "classifier-accuracy",
+   "category": "classifier-accuracy",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "not supported yet: the product has no practice/failure classifier yet",
+   "metrics": {}
+  }
+ ]
+}

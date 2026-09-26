@@ -1,0 +1,1022 @@
+{
+ "metadata": {
+  "wellbrief_version": "0.1.0",
+  "date_utc": "2026-09-26T14:33:05Z",
+  "command": "wellbrief eval --suite extended --out results/v0.1.0/extended-first-run.json",
+  "suites": [
+   "extended"
+  ],
+  "seeds": [
+   20260731
+  ],
+  "options": {
+   "risk_filters": true,
+   "narrator": "offline"
+  },
+  "python": {
+   "version": "3.12.14",
+   "implementation": "CPython"
+  },
+  "hardware": {
+   "cpu": "Apple M5",
+   "ram_gb": 24.0,
+   "os": "macOS 26.6.2",
+   "arch": "arm64"
+  },
+  "git": {
+   "sha": "c861e0195479f23f17b4d76b423dee8dda1f0071",
+   "dirty": false
+  }
+ },
+ "passed_all_gates": false,
+ "summary": [
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "cases": 52,
+   "passed": 35,
+   "gated": 52,
+   "gated_passed": 35,
+   "informational": 0,
+   "retrieval_cases": 19,
+   "retrieval_unscored": 0,
+   "mean_p_at_8": 0.8158,
+   "mean_mrr_at_8": 0.9474
+  }
+ ],
+ "results": [
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-orrindale-stuck",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 39 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 39,
+    "hits": 8,
+    "ranking": [
+     "DDR-ORD-118-013",
+     "DDR-ORD-121-013",
+     "DDR-ORD-120-013",
+     "DDR-ORD-103-013",
+     "DDR-ORD-101-012",
+     "DDR-ORD-107-014",
+     "DDR-ORD-112-013",
+     "DDR-ORD-109-013"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-orrindale-salt",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 42 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 42,
+    "hits": 8,
+    "ranking": [
+     "DDR-ORD-109-007",
+     "DDR-ORD-119-007",
+     "DDR-ORD-114-007",
+     "DDR-ORD-104-006",
+     "DDR-ORD-107-005",
+     "DDR-ORD-108-006",
+     "DDR-ORD-119-006",
+     "DDR-ORD-109-008"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-vessra-losses",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 36 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 36,
+    "hits": 8,
+    "ranking": [
+     "INC-VSS-206-01",
+     "INC-VSS-208-01",
+     "INC-VSS-211-02",
+     "INC-VSS-204-01",
+     "INC-VSS-205-02",
+     "INC-VSS-201-02",
+     "INC-VSS-209-01",
+     "INC-VSS-202-02"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-mwd-failure",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 57 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 57,
+    "hits": 8,
+    "ranking": [
+     "INC-ORD-102-01",
+     "INC-ORD-127-01",
+     "INC-ORD-103-02",
+     "INC-ORD-104-03",
+     "INC-ORD-121-02",
+     "INC-ORD-119-02",
+     "INC-ORD-106-01",
+     "INC-ORD-124-01"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-rig-repair",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 54 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 54,
+    "hits": 8,
+    "ranking": [
+     "DDR-VSS-209-026",
+     "DDR-VSS-203-033",
+     "DDR-VSS-213-029",
+     "DDR-VSS-213-026",
+     "DDR-VSS-209-031",
+     "DDR-VSS-201-029",
+     "DDR-VSS-203-031",
+     "DDR-VSS-205-028"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-lessons",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 24 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 24,
+    "hits": 8,
+    "ranking": [
+     "EOWR-ORD-112",
+     "EOWR-ORD-108",
+     "EOWR-ORD-114",
+     "EOWR-ORD-126",
+     "EOWR-ORD-123",
+     "EOWR-ORD-122",
+     "EOWR-ORD-117",
+     "EOWR-ORD-118"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-cement",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 31 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 31,
+    "hits": 8,
+    "ranking": [
+     "DDR-ORD-119-028",
+     "DDR-ORD-111-024",
+     "DDR-ORD-125-030",
+     "DDR-ORD-125-023",
+     "DDR-ORD-101-033",
+     "DDR-ORD-101-026",
+     "DDR-ORD-109-035",
+     "DDR-ORD-110-032"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-weather",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "P@8 0.25 (2 of 8), MRR@8 1.00, 30 relevant; P@8 0.25 < 0.5",
+   "metrics": {
+    "p_at_8": 0.25,
+    "mrr_at_8": 1.0,
+    "relevant": 30,
+    "hits": 2,
+    "ranking": [
+     "DDR-VSS-204-033",
+     "INC-VSS-206-01",
+     "INC-VSS-211-02",
+     "INC-VSS-201-02",
+     "INC-VSS-204-01",
+     "INC-VSS-203-01",
+     "INC-VSS-209-01",
+     "DDR-VSS-204-032"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-section-dash-in",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 0.88 (7 of 8), MRR@8 1.00, 11 relevant",
+   "metrics": {
+    "p_at_8": 0.875,
+    "mrr_at_8": 1.0,
+    "relevant": 11,
+    "hits": 7,
+    "ranking": [
+     "DDR-ORD-110-011",
+     "DDR-ORD-125-010",
+     "DDR-ORD-112-007",
+     "DDR-ORD-103-012",
+     "DDR-ORD-125-011",
+     "EOWR-ORD-121",
+     "DDR-ORD-111-014",
+     "DDR-ORD-119-013"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-section-decimal",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 0.88 (7 of 8), MRR@8 1.00, 13 relevant",
+   "metrics": {
+    "p_at_8": 0.875,
+    "mrr_at_8": 1.0,
+    "relevant": 13,
+    "hits": 7,
+    "ranking": [
+     "DDR-ORD-114-019",
+     "DDR-ORD-119-021",
+     "DDR-ORD-102-021",
+     "DDR-ORD-102-020",
+     "DDR-ORD-125-022",
+     "EOWR-ORD-119",
+     "DDR-ORD-126-017",
+     "DDR-ORD-101-026"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-section-unicode",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "P@8 0.12 (1 of 8), MRR@8 1.00, 11 relevant; P@8 0.12 < 0.5",
+   "metrics": {
+    "p_at_8": 0.125,
+    "mrr_at_8": 1.0,
+    "relevant": 11,
+    "hits": 1,
+    "ranking": [
+     "DDR-VSS-201-020",
+     "EOWR-VSS-201",
+     "DDR-VSS-211-008",
+     "DDR-VSS-203-027",
+     "DDR-VSS-210-022",
+     "EOWR-VSS-208",
+     "DDR-VSS-210-023",
+     "INC-VSS-201-01"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-section-space-in",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 0.88 (7 of 8), MRR@8 1.00, 11 relevant",
+   "metrics": {
+    "p_at_8": 0.875,
+    "mrr_at_8": 1.0,
+    "relevant": 11,
+    "hits": 7,
+    "ranking": [
+     "DDR-ORD-121-025",
+     "DDR-ORD-110-022",
+     "DDR-ORD-128-021",
+     "DDR-ORD-122-020",
+     "DDR-ORD-119-019",
+     "DDR-ORD-104-018",
+     "DDR-ORD-120-019",
+     "EOWR-ORD-108"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-well-lowercase",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "P@8 0.00 (0 of 8), MRR@8 0.00, 15 relevant; P@8 0.00 < 0.5",
+   "metrics": {
+    "p_at_8": 0.0,
+    "mrr_at_8": 0.0,
+    "relevant": 15,
+    "hits": 0,
+    "ranking": [
+     "DDR-ORD-108-032",
+     "DDR-ORD-108-028",
+     "DDR-ORD-108-022",
+     "DDR-ORD-108-021",
+     "DDR-ORD-108-018",
+     "DDR-ORD-108-019",
+     "DDR-ORD-108-010",
+     "DDR-ORD-108-009"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-depth-around",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 42 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 42,
+    "hits": 8,
+    "ranking": [
+     "DDR-VSS-201-025",
+     "DDR-VSS-205-024",
+     "DDR-VSS-202-023",
+     "INC-VSS-206-01",
+     "DDR-VSS-206-024",
+     "INC-VSS-201-02",
+     "INC-VSS-208-01",
+     "INC-VSS-205-02"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-depth-led",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 0.50 (4 of 8), MRR@8 1.00, 35 relevant",
+   "metrics": {
+    "p_at_8": 0.5,
+    "mrr_at_8": 1.0,
+    "relevant": 35,
+    "hits": 4,
+    "ranking": [
+     "DDR-ORD-124-012",
+     "DDR-ORD-122-013",
+     "DDR-ORD-128-012",
+     "DDR-ORD-103-012",
+     "DDR-ORD-127-012",
+     "DDR-ORD-108-013",
+     "DDR-ORD-103-015",
+     "DDR-ORD-119-025"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-paraphrase-pack-off",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 39 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 39,
+    "hits": 8,
+    "ranking": [
+     "INC-ORD-101-01",
+     "INC-ORD-121-01",
+     "INC-ORD-120-01",
+     "INC-ORD-109-01",
+     "INC-ORD-119-01",
+     "INC-ORD-103-01",
+     "INC-ORD-118-01",
+     "INC-ORD-107-01"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-paraphrase-lost-returns",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 47 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 47,
+    "hits": 8,
+    "ranking": [
+     "INC-VSS-206-01",
+     "INC-VSS-201-02",
+     "INC-VSS-202-02",
+     "INC-VSS-205-02",
+     "INC-VSS-211-02",
+     "INC-VSS-204-01",
+     "INC-VSS-203-01",
+     "INC-VSS-208-01"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-name-field",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 61 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 61,
+    "hits": 8,
+    "ranking": [
+     "DDR-ORD-115-031",
+     "DDR-ORD-116-026",
+     "DDR-ORD-128-031",
+     "DDR-ORD-103-033",
+     "DDR-ORD-117-021",
+     "DDR-ORD-103-032",
+     "DDR-ORD-109-034",
+     "DDR-ORD-108-016"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "rp-field-name",
+   "category": "retrieval-precision",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "P@8 1.00 (8 of 8), MRR@8 1.00, 26 relevant",
+   "metrics": {
+    "p_at_8": 1.0,
+    "mrr_at_8": 1.0,
+    "relevant": 26,
+    "hits": 8,
+    "ranking": [
+     "DDR-VSS-208-012",
+     "DDR-VSS-203-022",
+     "DDR-VSS-211-014",
+     "DDR-VSS-202-012",
+     "DDR-VSS-212-021",
+     "DDR-VSS-208-022",
+     "DDR-VSS-210-004",
+     "DDR-VSS-206-004"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-orrindale-instability-hours",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 120.8 (gold 120.8)",
+   "metrics": {
+    "expected": 120.8,
+    "reported": 120.8,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-orrindale-fishing-hours",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 44 (gold 44)",
+   "metrics": {
+    "expected": 44.0,
+    "reported": 44.0,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-vessra-tool-failure-hours",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 88.6 (gold 88.6)",
+   "metrics": {
+    "expected": 88.6,
+    "reported": 88.6,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-vessra-rig-repair-hours",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 368.1 (gold 368.1)",
+   "metrics": {
+    "expected": 368.1,
+    "reported": 368.1,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-well-total-ord-112",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 67.7 (gold 67.7)",
+   "metrics": {
+    "expected": 67.7,
+    "reported": 67.7,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-section-total-orrindale-12-1-4",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 590.8 (gold 590.8)",
+   "metrics": {
+    "expected": 590.8,
+    "reported": 590.8,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-formation-total-keldra-salt-orrindale",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 529.7 (gold 529.7)",
+   "metrics": {
+    "expected": 529.7,
+    "reported": 529.7,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-avoidable-share-vessra-south",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "avoidable_share 0.863 (gold 0.8633)",
+   "metrics": {
+    "expected": 0.8633000688231245,
+    "reported": 0.863,
+    "figure": "avoidable_share"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ar-cost-stuck-pipe-orrindale-60k",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_cost_usd 701250 (gold 701250)",
+   "metrics": {
+    "expected": 701250.0,
+    "reported": 701250.0,
+    "figure": "total_cost_usd"
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-unknown-well-ord-199",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the no-match sentence is missing (answer starts: 'Nothing in the indexed well files matches that question. Either the interval has')",
+   "metrics": {
+    "figures": 0,
+    "citations": 0
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-code-without-events-fishing-vessra-south",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the answer cites 12 documents; the no-match sentence is missing (answer starts: 'From the documents:')",
+   "metrics": {
+    "figures": 0,
+    "citations": 12
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-section-code-losses-12-1-4-vessra-south",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the answer cites 12 documents; the no-match sentence is missing (answer starts: 'From the documents:')",
+   "metrics": {
+    "figures": 0,
+    "citations": 12
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-section-code-mwd-8-1-2-orrindale",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the answer cites 8 documents; the no-match sentence is missing (answer starts: 'From the documents:')",
+   "metrics": {
+    "figures": 0,
+    "citations": 8
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-unknown-field",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the answer cites 8 documents; the no-match sentence is missing (answer starts: 'From the documents:')",
+   "metrics": {
+    "figures": 0,
+    "citations": 8
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "ab-unknown-formation",
+   "category": "abstention",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "the answer carries figures ['avoidable_share', 'event_count', 'total_cost_usd', 'total_hours']; the answer cites 17 documents; the no-match sentence is missing (answer starts: '20 matching events across 10 wells, 280.5 h of non-productive time ($561,000 at ')",
+   "metrics": {
+    "figures": 4,
+    "citations": 17
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-recall-g1-orrindale",
+   "category": "brief-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "listed as STUCK_PIPE (interval: 17 1/2\" Keldra Salt), rank 1 of 8",
+   "metrics": {
+    "rank": 1
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-recall-g2-vessra-south",
+   "category": "brief-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "listed as LOST_CIRCULATION (interval: 8 1/2\" Vessra Carbonate), rank 1 of 8",
+   "metrics": {
+    "rank": 1
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-recall-g3-orrindale",
+   "category": "brief-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "listed as DOWNHOLE_TOOL_FAILURE (interval: 12 1/4\" Orrindale Sand), rank 2 of 8",
+   "metrics": {
+    "rank": 2
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-recall-g4-vessra-south",
+   "category": "brief-recall",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "not among the 8 listed risks: ['LOST_CIRCULATION (interval: 8 1/2\" Vessra Carbonate)', 'RIG_REPAIR (interval: 8 1/2\" Vessra Carbonate)', 'DOWNHOLE_TOOL_FAILURE (interval: 12 1/4\" Ulvent Claystone)', 'RIG_REPAIR (interval: 26\" Tessivar Marl)', 'RIG_REPAIR (interval: 12 1/4\" Ulvent Claystone)', 'RIG_REPAIR (interval: 17 1/2\" Tessivar Marl)', 'RIG_REPAIR (interval: 17 1/2\" Ulvent Claystone)', 'WAIT_ON_WEATHER (interval: 12 1/4\" Ulvent Claystone)']",
+   "metrics": {
+    "listed": [
+     "LOST_CIRCULATION (interval: 8 1/2\" Vessra Carbonate)",
+     "RIG_REPAIR (interval: 8 1/2\" Vessra Carbonate)",
+     "DOWNHOLE_TOOL_FAILURE (interval: 12 1/4\" Ulvent Claystone)",
+     "RIG_REPAIR (interval: 26\" Tessivar Marl)",
+     "RIG_REPAIR (interval: 12 1/4\" Ulvent Claystone)",
+     "RIG_REPAIR (interval: 17 1/2\" Tessivar Marl)",
+     "RIG_REPAIR (interval: 17 1/2\" Ulvent Claystone)",
+     "WAIT_ON_WEATHER (interval: 12 1/4\" Ulvent Claystone)"
+    ]
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-driver-g1-mud-weight",
+   "category": "brief-driver",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "STUCK_PIPE (interval: 17 1/2\" Keldra Salt) driver: mud_weight",
+   "metrics": {
+    "expected": "mud_weight",
+    "reported": "mud_weight",
+    "driver_text": "Mud weight in Keldra Salt averaged 1.33 sg on the wells that hit this and 1.42 sg on the wells that did not. Affected wells ran lower."
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-driver-g3-tool",
+   "category": "brief-driver",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "DOWNHOLE_TOOL_FAILURE (interval: 12 1/4\" Orrindale Sand) driver: tool (PJ-3)",
+   "metrics": {
+    "expected": "tool (PJ-3)",
+    "reported": "tool (Parvane Downhole PJ-3)",
+    "driver_text": "Parvane Downhole PJ-3 hit this on 8 of 15 wells (53 %) against 0 % on the rest of the fleet."
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-driver-g4-rig",
+   "category": "brief-driver",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "G4 is not listed, so it has no driver (expected rig)",
+   "metrics": {}
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-precision-orrindale",
+   "category": "mitigation-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "STUCK_PIPE [EOWR-ORD-102] labelled failure in the truth file: 'Keldra Salt was drilled at 1.33 sg in the 17 1/2\" '; STUCK_PIPE [EOWR-ORD-108] labelled failure in the truth file: 'Keldra Salt was drilled at 1.36 sg in the 17 1/2\" '; STUCK_PIPE [EOWR-ORD-114] labelled failure in the truth file: 'Keldra Salt was drilled at 1.35 sg in the 17 1/2\" ' (+8 more)",
+   "metrics": {
+    "mitigations": 18,
+    "precise": 7,
+    "precision": 0.3889
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-precision-vessra-south",
+   "category": "mitigation-precision",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "RIG_REPAIR [EOWR-VSS-206] labelled failure in the truth file: 'Total losses were taken on entering Vessra Carbona'; RIG_REPAIR [EOWR-VSS-208] the truth relates the sentence to another code or pattern: 'Condition the hole and spot an LCM pill before ent'; RIG_REPAIR [EOWR-VSS-210] the truth relates the sentence to another code or pattern: 'Flow rate was cut to 430 gpm and a 30 bbl fibrous ' (+3 more)",
+   "metrics": {
+    "mitigations": 16,
+    "precise": 10,
+    "precision": 0.625
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-recall-g1",
+   "category": "mitigation-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "3 of 8 mitigations are G1 practice",
+   "metrics": {
+    "mitigations": 8,
+    "practice_for_pattern": 3
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-recall-g2",
+   "category": "mitigation-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "2 of 2 mitigations are G2 practice",
+   "metrics": {
+    "mitigations": 2,
+    "practice_for_pattern": 2
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-recall-g3",
+   "category": "mitigation-recall",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "4 of 8 mitigations are G3 practice",
+   "metrics": {
+    "mitigations": 8,
+    "practice_for_pattern": 4
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "bq-mitigation-recall-g4",
+   "category": "mitigation-recall",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "G4 is not listed",
+   "metrics": {}
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "pf-orrindale",
+   "category": "parser-fidelity",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "precision 1.000, recall 1.000, 1660.7 h vs 1660.7 h; depth/section/formation agree on 319/319/319 of 319",
+   "metrics": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "parsed": 319,
+    "truth": 319,
+    "total_hours_parsed": 1660.7,
+    "total_hours_truth": 1660.7,
+    "depth_agree": 319,
+    "section_agree": 319,
+    "formation_agree": 319
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "pf-vessra-south",
+   "category": "parser-fidelity",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "precision 1.000, recall 1.000, 1162.4 h vs 1162.4 h; depth/section/formation agree on 215/215/215 of 215",
+   "metrics": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "parsed": 215,
+    "truth": 215,
+    "total_hours_parsed": 1162.4,
+    "total_hours_truth": 1162.4,
+    "depth_agree": 215,
+    "section_agree": 215,
+    "formation_agree": 215
+   }
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "fp-pdf",
+   "category": "format-parity",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "not supported yet: the corpus generator cannot write the 'pdf' format yet",
+   "metrics": {}
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "fp-docx",
+   "category": "format-parity",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "not supported yet: the corpus generator cannot write the 'docx' format yet",
+   "metrics": {}
+  },
+  {
+   "suite": "extended",
+   "seed": 20260731,
+   "id": "fp-csv",
+   "category": "format-parity",
+   "gate": true,
+   "reason": null,
+   "passed": false,
+   "detail": "not supported yet: the corpus generator cannot write an NPT ledger CSV yet",
+   "metrics": {}
+  }
+ ]
+}

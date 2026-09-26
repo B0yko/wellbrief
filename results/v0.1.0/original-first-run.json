@@ -1,0 +1,275 @@
+{
+ "metadata": {
+  "wellbrief_version": "0.1.0",
+  "date_utc": "2026-09-26T14:32:47Z",
+  "command": "wellbrief eval --suite original --out results/v0.1.0/original-first-run.json",
+  "suites": [
+   "original"
+  ],
+  "seeds": [
+   20260731
+  ],
+  "options": {
+   "risk_filters": true,
+   "narrator": "offline"
+  },
+  "python": {
+   "version": "3.12.14",
+   "implementation": "CPython"
+  },
+  "hardware": {
+   "cpu": "Apple M5",
+   "ram_gb": 24.0,
+   "os": "macOS 26.6.2",
+   "arch": "arm64"
+  },
+  "git": {
+   "sha": "c861e0195479f23f17b4d76b423dee8dda1f0071",
+   "dirty": false
+  }
+ },
+ "passed_all_gates": true,
+ "summary": [
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "cases": 17,
+   "passed": 17,
+   "gated": 17,
+   "gated_passed": 17,
+   "informational": 0
+  }
+ ],
+ "results": [
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "orrindale-stuck",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "orrindale-salt",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "vessra-losses",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 16
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "mwd-failure",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "rig-repair",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "lessons",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "cement",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "weather",
+   "category": "retrieval",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "ok",
+   "metrics": {
+    "retrieved": 17
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "arithmetic-orrindale-stuck_pipe",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 280.5 (gold 280.5)",
+   "metrics": {
+    "expected": 280.5,
+    "reported": 280.5,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "arithmetic-vessra-south-lost_circulation",
+   "category": "arithmetic",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "total_hours 296.3 (gold 296.3)",
+   "metrics": {
+    "expected": 296.3,
+    "reported": 296.3,
+    "figure": "total_hours"
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "grounding",
+   "category": "grounding",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "119 citations verbatim",
+   "metrics": {
+    "citations_checked": 119,
+    "not_verbatim": 0
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "discovery-orrindale",
+   "category": "discovery",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "top pattern STUCK_PIPE in Keldra Salt",
+   "metrics": {
+    "top_code": "STUCK_PIPE",
+    "top_formation": "Keldra Salt",
+    "hours": 280.5
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "brief-citations-orrindale",
+   "category": "brief-citations",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "50 citations verbatim",
+   "metrics": {
+    "citations_checked": 50
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "brief-mitigations-orrindale",
+   "category": "brief-mitigations",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "18 mitigations across 8 risks",
+   "metrics": {
+    "risks": 8
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "discovery-vessra-south",
+   "category": "discovery",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "top pattern LOST_CIRCULATION in Vessra Carbonate",
+   "metrics": {
+    "top_code": "LOST_CIRCULATION",
+    "top_formation": "Vessra Carbonate",
+    "hours": 296.3
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "brief-citations-vessra-south",
+   "category": "brief-citations",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "48 citations verbatim",
+   "metrics": {
+    "citations_checked": 48
+   }
+  },
+  {
+   "suite": "original",
+   "seed": 20260731,
+   "id": "brief-mitigations-vessra-south",
+   "category": "brief-mitigations",
+   "gate": true,
+   "reason": null,
+   "passed": true,
+   "detail": "16 mitigations across 8 risks",
+   "metrics": {
+    "risks": 8
+   }
+  }
+ ]
+}
