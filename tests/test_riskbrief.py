@@ -9,10 +9,13 @@ Uses the same hand-built ledger as `test_analytics.py` (`analytics_ledger.py`): 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import analytics_ledger as ledger
 from wellbrief import riskbrief
+from wellbrief.models import Document
 from wellbrief.store import Store
 
 
@@ -187,3 +190,28 @@ def test_risk_filters_false_admits_patterns_the_default_filters_drop(store: Stor
     assert "WAIT_ON_WEATHER" not in {r.code for r in filtered.risks}
     assert "WAIT_ON_WEATHER" in {r.code for r in unfiltered.risks}
     assert len(unfiltered.risks) > len(filtered.risks)
+
+
+# ---------------------------------------------------------------------------
+# Mitigations reach the risk's citations too (`miner.mine_mitigations`,
+# wired through `build_risk`): a fresh store, so the shared, module-scoped
+# `store` fixture above (no end of well reports at all) stays untouched.
+# ---------------------------------------------------------------------------
+
+def test_a_clean_wells_mitigation_is_quoted_and_cited(tmp_path: Path) -> None:
+    store = ledger.store(tmp_path)
+    # RB-106 (Rig-South): "clean on both counts" for RIG_REPAIR (analytics_ledger's own docstring).
+    store.put_documents([Document(
+        "EOWR-RB-106", "eowr", "RB-106", ledger.FIELD, "2024-03-01", "END OF WELL REPORT",
+        "END OF WELL REPORT\n\n4. LESSONS LEARNED\n  1. Mud pump fluid ends on Rig-South were "
+        "inspected and changed between wells; no pump NPT.\n",
+    )])
+    brief = riskbrief.build_brief(store, "RB-NEXT", ledger.FIELD, 3000.0)
+    rig_repair = risk(brief, "RIG_REPAIR")
+    assert rig_repair.mitigations == [
+        "Mud pump fluid ends on Rig-South were inspected and changed between wells; no pump NPT."
+    ]
+    cited = {c.doc_id: c.quote for c in rig_repair.citations}
+    assert cited["EOWR-RB-106"] == rig_repair.mitigations[0]
+    check = riskbrief.verify_brief(brief, store)
+    assert check["ok"] is True

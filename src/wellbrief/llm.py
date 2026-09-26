@@ -89,8 +89,9 @@ class OfflineNarrator(Narrator):
                 lines.append(f"- {ev['quote']} [{ev['doc_id']}]")
         if summary.get("mitigations"):
             lines.append("")
-            lines.append("Recorded mitigations on wells that avoided it:")
-            for m in summary["mitigations"][:4]:
+            heading = summary.get("mitigations_heading") or "Recorded mitigations on wells that avoided it"
+            lines.append(f"{heading}:")
+            for m in summary["mitigations"][:3]:
                 lines.append(f"- {m['text']} [{m['doc_id']}]")
         return "\n".join(lines)
 

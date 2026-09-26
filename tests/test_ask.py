@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
 import mini_workspace as mini
 from wellbrief.llm import NO_MATCH
-from wellbrief.models import Answer
-from wellbrief.qa import FIGURE_SOURCE_LIMIT, ask
+from wellbrief.models import Answer, Document, NptEvent
+from wellbrief.qa import FIGURE_SOURCE_LIMIT, MITIGATIONS_HEADING_AVOIDED, MITIGATIONS_HEADING_GENERAL, ask
 from wellbrief.search import Searcher
 from wellbrief.store import Store
 
@@ -264,3 +265,161 @@ def test_no_citation_comes_from_another_field(workspace: tuple[Store, Searcher])
     assert a.citations
     docs = [store.get_document(c.doc_id) for c in a.citations]
     assert {d.field_name for d in docs if d is not None} == {"Vessra South"} and None not in docs
+
+
+# ---------------------------------------------------------------------------
+# The mitigations heading: "Recorded mitigations on wells that
+# avoided it" only when the miner drew them from a population it could
+# compute as having avoided the named problem; "Lessons and recommendations
+# from end-of-well reports" otherwise. Neither the shared mini_workspace
+# fixture's daily reports carry parsed hole-section/formation metadata (they
+# are hand-built Documents, not run through the real parser), so these use
+# their own small stores where that metadata is set explicitly.
+# ---------------------------------------------------------------------------
+
+def _clean_population_store(tmp_path: Path) -> tuple[Store, Searcher]:
+    """One field, one affected well and one clean well, exposed to the same
+    section and formation: enough for `qa._mitigations_for` to compute a
+    clean population directly from the ledger."""
+    field, section, formation = "Mirren", '17 1/2"', "Keldra Salt"
+    store = Store(tmp_path / "wellbrief.db")
+
+    def ddr(well: str) -> Document:
+        return Document(
+            f"DDR-{well}-001", "ddr", well, field, "2024-01-05", "DAILY DRILLING REPORT",
+            f"DAILY DRILLING REPORT\nOperator: Quillfen Energy    Field: {field}    Well: {well}\n",
+            meta={"hole_section": section, "formation": formation},
+        )
+
+    store.put_documents([
+        ddr("MRN-101"), ddr("MRN-102"),
+        Document(
+            "EOWR-MRN-102", "eowr", "MRN-102", field, "2024-03-01", "END OF WELL REPORT",
+            "END OF WELL REPORT\n\n4. LESSONS LEARNED\n  1. Hold at least 1.42 sg across Keldra Salt "
+            "and sweep with saturated brine every 250 m.\n",
+        ),
+    ])
+    store.put_npt([NptEvent(
+        "DDR-MRN-101-001", "MRN-101", field, "2024-01-05", "STUCK_PIPE", 23.5, section, formation,
+        1402.0, 1.30, "Orrin-1", "String packed off at 1,402 m while pulling out of hole.",
+    )])
+    return store, mini.searcher(store)
+
+
+def test_ask_uses_the_avoided_heading_when_a_clean_population_is_known(tmp_path: Path) -> None:
+    store, searcher = _clean_population_store(tmp_path)
+    a = ask("Stuck pipe in Keldra Salt on Mirren", store, searcher)
+    assert not a.abstained
+    assert [m["well"] for m in a.mitigations] == ["MRN-102"]
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" in a.text
+    assert f"{MITIGATIONS_HEADING_GENERAL}:" not in a.text
+
+
+def _codeonly_store(tmp_path: Path) -> tuple[Store, Searcher]:
+    """A code named with no hole section or formation: there is no place in
+    the well to define an "avoided" population against (the clean-well rule
+    needs a section or formation to know who was exposed), so `_mitigations_for`
+    falls back to any relevant end of well report."""
+    field, section, formation = "Kelso", '17 1/2"', "Keldra Salt"
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([
+        Document(
+            "DDR-KLS-101-001", "ddr", "KLS-101", field, "2024-01-05", "DAILY DRILLING REPORT",
+            f"DAILY DRILLING REPORT\nOperator: Quillfen Energy    Field: {field}    Well: KLS-101\n",
+            meta={"hole_section": section, "formation": formation},
+        ),
+        Document(
+            "EOWR-KLS-101", "eowr", "KLS-101", field, "2024-03-01", "END OF WELL REPORT",
+            "END OF WELL REPORT\n\n4. LESSONS LEARNED\n  1. Hold at least 1.42 sg across Keldra Salt "
+            "and sweep with saturated brine every 250 m.\n",
+        ),
+    ])
+    store.put_npt([NptEvent(
+        "DDR-KLS-101-001", "KLS-101", field, "2024-01-05", "STUCK_PIPE", 23.5, section, formation,
+        1402.0, 1.30, "Orrin-1", "String packed off at 1,402 m while pulling out of hole.",
+    )])
+    return store, mini.searcher(store)
+
+
+def test_ask_uses_the_general_heading_when_the_question_names_no_place_in_the_well(tmp_path: Path) -> None:
+    store, searcher = _codeonly_store(tmp_path)
+    a = ask("What NPT was booked for stuck pipe on Kelso?", store, searcher)
+    assert not a.abstained
+    assert [m["well"] for m in a.mitigations] == ["KLS-101"]
+    assert f"{MITIGATIONS_HEADING_GENERAL}:" in a.text
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" not in a.text
+
+
+def test_no_mitigations_means_no_mitigations_block_at_all(workspace: tuple[Store, Searcher]) -> None:
+    a = answer(workspace, "What happened on ORD-104?")
+    assert a.mitigations == []
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" not in a.text
+    assert f"{MITIGATIONS_HEADING_GENERAL}:" not in a.text
+
+
+def _four_clean_wells_store(tmp_path: Path) -> tuple[Store, Searcher]:
+    """One affected well and four clean wells, each with its own distinct
+    qualifying practice lesson, so that more than 3 candidates qualify and
+    the "at most 3" cap is the only thing holding the count
+    down -- both in `Answer.mitigations` and in the rendered text."""
+    field, section, formation = "Sarnov", '17 1/2"', "Keldra Salt"
+    store = Store(tmp_path / "wellbrief.db")
+
+    def ddr(well: str) -> Document:
+        return Document(
+            f"DDR-{well}-001", "ddr", well, field, "2024-01-05", "DAILY DRILLING REPORT",
+            f"DAILY DRILLING REPORT\nOperator: Quillfen Energy    Field: {field}    Well: {well}\n",
+            meta={"hole_section": section, "formation": formation},
+        )
+
+    def eowr(well: str, sentence: str) -> Document:
+        return Document(
+            f"EOWR-{well}", "eowr", well, field, "2024-03-01", "END OF WELL REPORT",
+            f"END OF WELL REPORT\n\n4. LESSONS LEARNED\n  1. {sentence}\n",
+        )
+
+    clean_wells = ["SRN-102", "SRN-103", "SRN-104", "SRN-105"]
+    sentences = [
+        "Hold at least 1.42 sg across Keldra Salt; the string ran clean to bottom.",
+        "Reduce flow rate on connections through Keldra Salt to control the wellbore below 1.40 sg.",
+        "Spot a barite pill before tripping out of Keldra Salt at 1.41 sg.",
+        "Sweep the hole with saturated brine every stand while drilling Keldra Salt at 1.43 sg.",
+    ]
+    store.put_documents([
+        ddr("SRN-101"), *(ddr(w) for w in clean_wells),
+        *(eowr(w, s) for w, s in zip(clean_wells, sentences, strict=True)),
+    ])
+    store.put_npt([NptEvent(
+        "DDR-SRN-101-001", "SRN-101", field, "2024-01-05", "STUCK_PIPE", 23.5, section, formation,
+        1402.0, 1.30, "Orrin-1", "String packed off at 1,402 m while pulling out of hole.",
+    )])
+    return store, mini.searcher(store)
+
+
+def test_ask_caps_mitigations_at_three_even_when_more_qualify(tmp_path: Path) -> None:
+    store, searcher = _four_clean_wells_store(tmp_path)
+    a = ask("Stuck pipe in Keldra Salt on Sarnov", store, searcher)
+    assert not a.abstained
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" in a.text
+    # Four clean wells each wrote a qualifying, non-duplicate practice lesson;
+    # only 3 make it into the answer and into its rendered text.
+    assert len(a.mitigations) == 3
+    assert len({m["well"] for m in a.mitigations}) == 3
+    mitigations_block = a.text.split(f"{MITIGATIONS_HEADING_AVOIDED}:")[1]
+    assert mitigations_block.count("[EOWR-SRN-") == 3
+
+
+def test_ask_shows_no_mitigations_when_the_question_names_two_codes(
+        workspace: tuple[Store, Searcher]) -> None:
+    # A single shared miner keys relevance on one code's keywords
+    # (`miner._relevant`); a question naming more than one code leaves
+    # `_mitigations_for`'s `code` empty and so yields no mitigations, a
+    # documented scope limit (qa._mitigations_for), not a crash or a
+    # silent partial answer -- the rest of the answer (figures, citations)
+    # is unaffected.
+    a = answer(workspace, "Compare stuck pipe and lost circulation NPT on Orrindale")
+    assert not a.abstained
+    assert len(a.query_plan["codes"]) == 2
+    assert a.mitigations == []
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" not in a.text
+    assert f"{MITIGATIONS_HEADING_GENERAL}:" not in a.text

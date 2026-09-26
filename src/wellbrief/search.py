@@ -189,11 +189,6 @@ def match_codes(text: str) -> list[str]:
     return _scan_codes(text)[0]
 
 
-def mentions_code(text: str, code: str) -> bool:
-    """Whether `text` names `code` through one of its synonyms (word boundaries)."""
-    return code in match_codes(text)
-
-
 # ---------------------------------------------------------------------------
 # The plan
 # ---------------------------------------------------------------------------

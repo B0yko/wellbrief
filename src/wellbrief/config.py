@@ -68,6 +68,29 @@ CODE_SYNONYMS: dict[str, list[str]] = {
 
 HOLE_SECTIONS = ['26"', '17 1/2"', '12 1/4"', '8 1/2"']
 
+# Words that put a candidate mitigation sentence in the same subject as an
+# NPT code (the mitigation miner's relevance test; see `miner._relevant`). Matched on
+# word boundaries against the sentence text alone; an interval risk also
+# requires the sentence, or an incident's own recorded section and
+# formation, to name the place in the well (`miner._relevant`). A constant
+# for now, like the taxonomy above; it becomes `[taxonomy.keywords]` once
+# TOML configuration lands, falling back to these defaults.
+TAXONOMY_KEYWORDS: dict[str, list[str]] = {
+    "STUCK_PIPE": ["pack-off", "mud weight", "sg", "salt", "trip"],
+    "FISHING": ["fish", "jar", "bha"],
+    "WELLBORE_INSTABILITY": ["salt", "sg", "mud weight", "overpull", "tight hole"],
+    "HOLE_CLEANING": ["cuttings", "sweep", "hole cleaning", "reaming", "annular velocity"],
+    "LOST_CIRCULATION": ["losses", "lcm", "flow rate", "pill"],
+    "DOWNHOLE_TOOL_FAILURE": ["mwd", "temperature rating", "temperature"],
+    "RIG_REPAIR": ["mud pump", "fluid end"],
+    "BOP_TEST_FAILURE": ["bop", "preventer", "pressure test"],
+    "CEMENT_ISSUE": ["cement"],
+    "WAIT_ON_MATERIALS": ["barite", "materials", "logistics"],
+    "WAIT_ON_WEATHER": ["weather", "forecast"],
+    "THIRD_PARTY_STANDBY": ["standby", "third party", "third-party"],
+    "HSE_STOP": ["hse", "stop work", "lifting", "safety"],
+}
+
 # Every document the synthetic corpus generator writes ends with this line.
 # The parsers end every section at it, so it is never read as an NPT
 # description, a lesson, a recommendation or a corrective action.

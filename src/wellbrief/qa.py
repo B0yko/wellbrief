@@ -14,10 +14,19 @@ the other stages produced.
   When the question's documents exist but no ledger entry matches (a well
   with reports and no NPT), the figures are zeros and the text says that no
   NPT is recorded.
+- Mitigations come from the same miner `riskbrief.build_risk` uses
+  (`miner.mine_mitigations`): a rule-based classifier keeps only sentences
+  written as a practice, not a description of the failure. `_mitigations_for`
+  also picks the answer's heading -- "Recorded mitigations on wells that
+  avoided it" only when the miner drew them from a population it could
+  compute as having avoided the named problem, "Lessons and recommendations
+  from end-of-well reports" otherwise.
 - Every document the narrator may cite is put into the evidence pack with a
-  verbatim quote: the retrieval hits, the cited figure sources, and the end of
-  well reports the mitigations are quoted from. Any document id the narrator
-  cites that is not in the pack is reported as a citation warning.
+  verbatim quote: the retrieval hits, the cited figure sources, and the
+  documents the mitigations are quoted from -- a clean well's end of well
+  report, or the corrective actions of a same-code incident report. Any
+  document id the narrator cites that is not in the pack
+  is reported as a citation warning.
 - A quote is a span of the raw document text (see `quotes`). A daily report
   that the question selects through the NPT ledger (by code, hole section,
   formation, an "at" depth or the general NPT cue) is quoted by the
@@ -44,9 +53,9 @@ from .config import (
     hours_to_usd,
 )
 from .llm import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
+from .miner import MinerScope, exposed_clean_wells, mine_mitigations
 from .models import Answer, Citation, Document, SearchHit
-from .parse import parse_eowr
-from .quotes import evidence_quote, verbatim_quote
+from .quotes import evidence_quote
 from .search import QueryPlan, Searcher, plan_query, quote_terms
 from .store import Store
 
@@ -180,7 +189,9 @@ def _figure_source_pack(store: Store, plan: QueryPlan, sources: list[dict[str, A
 
 
 def _mitigation_sources(store: Store, mitigations: list[dict[str, str]]) -> list[dict[str, Any]]:
-    """The end of well reports the mitigations are quoted from, one entry per sentence."""
+    """The documents the mitigations are quoted from, one entry per sentence: a
+    clean well's end of well report, or the corrective actions of a same-code
+    incident report."""
     out: list[dict[str, Any]] = []
     for m in mitigations:
         doc = store.get_document(m["doc_id"])
@@ -203,32 +214,58 @@ def _merge(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 4) -> list[dict[str, str]]:
-    """Lessons written in end of well reports that match the question's scope."""
+#: Heading `ask` shows above its mitigations when the miner drew them from a
+#: population it knows avoided the named problem.
+MITIGATIONS_HEADING_AVOIDED = "Recorded mitigations on wells that avoided it"
+#: Heading otherwise: the question named no code, or no clean population is
+#: known, so these are relevant lessons and recommendations, not a claim that
+#: any of them come from a well that avoided anything.
+MITIGATIONS_HEADING_GENERAL = "Lessons and recommendations from end-of-well reports"
+
+
+def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3) -> tuple[list[dict[str, str]], str]:
+    """Mitigations relevant to the question's scope, through the same miner
+    `riskbrief.build_risk` uses, and the heading the answer
+    should show above them. `limit` defaults to 3, the same cap
+    `mine_mitigations` itself applies, so `ask` and `brief` show the same
+    "at most 3" everywhere; a caller only needs to pass it to ask for fewer.
+
+    When the plan names exactly one code and a hole section or formation,
+    the wells that avoided it there can be computed directly from the ledger
+    (`miner.exposed_clean_wells`), the same rule a discovered risk's
+    `clean_wells` already applies; if that population exists and yields a
+    mitigation, the answer may say so. Otherwise (no code named, or no known
+    clean well) the miner runs unrestricted -- any relevant end of well
+    report counts, not only ones known to have avoided the problem -- and the
+    weaker heading applies.
+
+    A question that names no code, or more than one, leaves `code` empty:
+    the miner's relevance test is keyed on one code's configured keywords
+    (`miner._relevant`), so an empty code matches nothing and `ask` shows no
+    mitigations at all rather than guessing which of several codes they
+    belong to. This is a real scope limit of a single shared miner, not a
+    bug: `riskbrief.build_risk` never has this problem because a discovered
+    `Pattern` always carries exactly one code.
+    """
     if not plan.scoped:
-        return []
-    needles = [n.lower() for n in [*plan.formations, *plan.hole_sections]]
-    out: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for doc in store.documents(doc_type="eowr", field_name=plan.fields or None):
-        parsed = parse_eowr(doc.text)
-        for sentence in list(parsed.get("recommendations", [])) + list(parsed.get("lessons", [])):
-            low = sentence.lower()
-            if needles and not any(n in low for n in needles):
-                continue
-            # A mitigation is shown as a quote, so it is the raw span the parser
-            # read the (normalised) sentence from.
-            quote = verbatim_quote(doc.text, sentence)
-            if quote is None:
-                continue
-            key = low[:80]
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({"text": quote, "doc_id": doc.doc_id, "well": doc.well})
-            if len(out) >= limit:
-                return out
-    return out
+        return [], MITIGATIONS_HEADING_GENERAL
+    fields: list[str] | None = list(plan.fields) or None
+    single_field = plan.fields[0] if len(plan.fields) == 1 else None
+    code = plan.codes[0] if len(plan.codes) == 1 else ""
+    hole_section = plan.hole_sections[0] if len(plan.hole_sections) == 1 else ""
+    formation = plan.formations[0] if len(plan.formations) == 1 else ""
+
+    if code and (hole_section or formation):
+        clean = exposed_clean_wells(store, single_field, code, hole_section, formation)
+        if clean:
+            scope = MinerScope(code=code, field_name=fields, hole_section=hole_section,
+                               formation=formation, clean_wells=frozenset(clean))
+            found = mine_mitigations(store, scope, limit)
+            if found:
+                return [m.to_dict() for m in found], MITIGATIONS_HEADING_AVOIDED
+
+    broad = MinerScope(code=code, field_name=fields, hole_section=hole_section, formation=formation)
+    return [m.to_dict() for m in mine_mitigations(store, broad, limit)], MITIGATIONS_HEADING_GENERAL
 
 
 def verify_citations(text: str, pack: list[dict[str, Any]], store: Store) -> list[str]:
@@ -302,7 +339,7 @@ def ask(
         return _abstain(question, plan, {"filters": applied}, narrator)
 
     cited_sources = sources[:FIGURE_SOURCE_LIMIT]
-    mitigations = _mitigations_for(store, plan)
+    mitigations, mitigations_heading = _mitigations_for(store, plan)
     terms = quote_terms(question, plan)
     figure_pack = _figure_source_pack(store, plan, cited_sources, terms)
     hits = _quote_once(hits, figure_pack)
@@ -313,6 +350,7 @@ def ask(
         "figure_sources": [{"doc_id": s["doc_id"], "hours": s["hours"]} for s in cited_sources],
         "report_count": len(sources),
         "mitigations": mitigations,
+        "mitigations_heading": mitigations_heading,
         "plan": plan.describe(),
         "scope": plan.filters_text(types=False),
     }

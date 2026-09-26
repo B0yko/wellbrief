@@ -8,7 +8,9 @@ the offset wells, and what the wells that avoided it did differently.
 The mitigations are not generated. They are quoted verbatim from the end of
 well reports of the wells that did not have the problem, or from the
 corrective actions of incident reports for the same failure, so each one can
-be traced back to the document it came from.
+be traced back to the document it came from. The mining itself (`miner.py`)
+is shared with `qa.ask`: this module only tells it which wells count as
+having avoided a discovered pattern.
 """
 
 from __future__ import annotations
@@ -30,10 +32,9 @@ from .config import (
     hours_to_usd,
 )
 from .llm import Narrator, OfflineNarrator
+from .miner import MinerScope, mine_mitigations
 from .models import Citation, Risk, RiskBrief
-from .parse import parse_eowr, parse_incident
-from .quotes import evidence_quote, verbatim_quote
-from .search import mentions_code
+from .quotes import evidence_quote
 from .store import Store, index_manifest_hash
 from .text import tokenize
 
@@ -46,64 +47,17 @@ def _pattern_terms(pattern: Pattern) -> list[str]:
     return tokenize(f"{pattern.code} {pattern.hole_section} {pattern.formation}")
 
 
-def _relevance(sentence: str, pattern: Pattern) -> int:
-    """Cheap term overlap between a written lesson and a detected pattern."""
-    low = sentence.lower()
-    score = 0
-    if pattern.formation and pattern.formation.lower() in low:
-        score += 3
-    section_digits = re.sub(r"[^0-9/]", "", pattern.hole_section)
-    if section_digits and section_digits in re.sub(r"[^0-9/]", "", low):
-        score += 2
-    if mentions_code(sentence, pattern.code):
-        score += 2
-    if re.search(r"\b(recommend|should|hold at|reduce|spot|condition|confirm|inspect(?:ed|ing)?)\b", low):
-        score += 1
-    return score
+def _scope_for(pattern: Pattern) -> MinerScope:
+    """The pattern as the shared miner (`miner.mine_mitigations`) sees it.
 
-
-def mine_mitigations(store: Store, pattern: Pattern, limit: int = 3) -> list[tuple[str, str]]:
-    """Pull the written fix out of the wells that avoided the problem.
-
-    Preference order: end of well reports from clean wells, then corrective
-    actions on incident reports for the same failure. Each sentence is
-    returned as the raw span of its report, so it can be cited verbatim.
+    `clean_wells` is always the population `analytics.find_patterns` already
+    computed for this pattern (offset wells exposed to the same section and
+    formation, or on the field's other rig or tool, that never had the
+    event): a discovered pattern always knows who avoided it, unlike a
+    query plan (`qa._mitigations_for`), which may not.
     """
-    candidates: list[tuple[int, str, str]] = []
-
-    clean = set(pattern.clean_wells)
-    for doc in store.documents(doc_type="eowr", field_name=pattern.field_name):
-        if doc.well not in clean:
-            continue
-        parsed = parse_eowr(doc.text)
-        for sentence in list(parsed.get("lessons", [])) + list(parsed.get("recommendations", [])):
-            score = _relevance(sentence, pattern)
-            quote = verbatim_quote(doc.text, sentence) if score >= 3 else None
-            if quote:
-                candidates.append((score, quote, doc.doc_id))
-
-    if len(candidates) < limit:
-        for doc in store.documents(doc_type="incident", field_name=pattern.field_name):
-            parsed = parse_incident(doc.text)
-            if parsed.get("code") != pattern.code:
-                continue
-            for action in parsed.get("corrective_actions", []):
-                score = _relevance(action, pattern)
-                quote = verbatim_quote(doc.text, action) if score >= 1 else None
-                if quote:
-                    candidates.append((score, quote, doc.doc_id))
-
-    seen: set[str] = set()
-    out: list[tuple[str, str]] = []
-    for _score, sentence, doc_id in sorted(candidates, key=lambda c: -c[0]):
-        key = re.sub(r"[^a-z0-9 ]", "", sentence.lower())[:90]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append((sentence, doc_id))
-        if len(out) >= limit:
-            break
-    return out
+    return MinerScope(code=pattern.code, field_name=pattern.field_name, hole_section=pattern.hole_section,
+                      formation=pattern.formation, clean_wells=frozenset(pattern.clean_wells))
 
 
 def _citations_for(store: Store, pattern: Pattern, limit: int = 4) -> list[Citation]:
@@ -185,15 +139,15 @@ def build_risk(store: Store, pattern: Pattern, spread_rate: float,
               plan_rig: str | None = None, plan_mwd: str | None = None) -> Risk:
     probability = pattern.probability
     expected_hours = probability * pattern.mean_hours_per_affected_well
-    mitigations = mine_mitigations(store, pattern)
+    mitigations = mine_mitigations(store, _scope_for(pattern))
     citations = _citations_for(store, pattern)
 
-    for text, doc_id in mitigations:
-        doc = store.get_document(doc_id)
+    for m in mitigations:
+        doc = store.get_document(m.doc_id)
         if doc:
             citations.append(Citation(
                 doc_id=doc.doc_id, doc_type=doc.doc_type, well=doc.well,
-                date=doc.date, quote=text,
+                date=doc.date, quote=m.text,
             ))
 
     return Risk(
@@ -217,7 +171,7 @@ def build_risk(store: Store, pattern: Pattern, spread_rate: float,
         lift=finite_or_none(pattern.lift),
         ratio=finite_or_none(pattern.ratio),
         applies=_applies(pattern, plan_rig, plan_mwd),
-        mitigations=[m for m, _ in mitigations],
+        mitigations=[m.text for m in mitigations],
         citations=citations,
         counter_examples=pattern.clean_wells,
     )

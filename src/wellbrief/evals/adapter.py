@@ -28,6 +28,7 @@ from ..corpus import FORMATS, build_corpus, write_corpus
 from ..embed import get_embedder
 from ..ingest import ingest, load_corpus_dir
 from ..llm import OfflineNarrator
+from ..miner import classify_many
 from ..qa import ask as product_ask
 from ..riskbrief import build_brief, verify_brief
 from ..search import Searcher
@@ -216,4 +217,4 @@ class Workspace:
 
     def classify(self, sentences: list[str]) -> list[str]:
         """The product's practice / failure / neutral label for each sentence text (labels never go in)."""
-        raise NotSupported("the product has no practice/failure classifier yet")
+        return classify_many(sentences)
