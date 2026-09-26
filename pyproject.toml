@@ -15,5 +15,11 @@ dependencies = []
 [project.scripts]
 wellbrief = "wellbrief.cli:main"
 
+[dependency-groups]
+dev = ["pytest>=8"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/wellbrief"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
