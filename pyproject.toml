@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wellbrief"
+version = "0.1.0"
+description = "Offline retrieval and non-productive time analytics over drilling well files."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "Andrii Boiko" }]
+dependencies = []
+
+[project.scripts]
+wellbrief = "wellbrief.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wellbrief"]

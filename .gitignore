@@ -1,0 +1,33 @@
+# Generated data: corpora, databases and indexes are rebuilt, never committed
+data/
+/corpus/
+/corpus-*/
+_truth.json
+_wells.json
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*_bm25.json
+*_vec.vec
+*_vec.vecmeta.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tool caches and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environment
+.env
+.DS_Store
