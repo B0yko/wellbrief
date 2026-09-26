@@ -143,22 +143,38 @@ class Store:
         row = self.conn.execute("SELECT * FROM documents WHERE doc_id=?", (doc_id,)).fetchone()
         return self._doc(row) if row else None
 
-    def documents(self, **filters: Any) -> list[Document]:
-        clauses, params = [], []
+    @staticmethod
+    def _documents_where(filters: dict[str, Any]) -> tuple[str, list[Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
         for col in ("doc_type", "well", "field_name"):
             if filters.get(col):
                 val = filters[col]
                 if isinstance(val, (list, tuple, set)):
                     clauses.append(f"{col} IN ({','.join('?' * len(val))})")
-                    params.extend(val)
+                    params.extend(sorted(val) if isinstance(val, set) else val)
                 else:
                     clauses.append(f"{col}=?")
                     params.append(val)
-        sql = "SELECT * FROM documents"
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY doc_id"
+        return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+    def documents(self, **filters: Any) -> list[Document]:
+        where, params = self._documents_where(filters)
+        sql = "SELECT * FROM documents" + where + " ORDER BY doc_id"
         return [self._doc(r) for r in self.conn.execute(sql, params)]
+
+    def document_ids(self, **filters: Any) -> set[str]:
+        """The ids of the documents `documents(**filters)` would return, without their text."""
+        where, params = self._documents_where(filters)
+        return {r[0] for r in self.conn.execute("SELECT doc_id FROM documents" + where, params)}
+
+    def documents_drilled_through(self, depth_min: float, depth_max: float, **filters: Any) -> set[str]:
+        """The daily reports whose drilled interval (depth at start to depth at end, as
+        parsed) meets [depth_min, depth_max]; `filters` as for `documents`."""
+        where, params = self._documents_where({**filters, "doc_type": "ddr"})
+        start, end = "json_extract(meta, '$.depth_start_m')", "json_extract(meta, '$.depth_end_m')"
+        sql = f"SELECT doc_id FROM documents{where} AND {end} >= ? AND COALESCE({start}, {end}) <= ?"
+        return {r[0] for r in self.conn.execute(sql, [*params, depth_min, depth_max])}
 
     def wells(self, field_name: str | None = None) -> list[Well]:
         sql, params = "SELECT * FROM wells", []
@@ -172,27 +188,37 @@ class Store:
             for r in self.conn.execute(sql, params)
         ]
 
-    def npt(self, **filters: Any) -> list[NptEvent]:
-        clauses, params = [], []
-        for col in ("field_name", "well", "code", "hole_section", "formation", "rig"):
+    # Columns of npt_events a caller may filter or group on.
+    NPT_COLUMNS = ("field_name", "well", "code", "hole_section", "formation", "rig", "doc_id")
+
+    @classmethod
+    def _npt_where(cls, filters: dict[str, Any]) -> tuple[str, list[Any]]:
+        """The WHERE clause shared by every ledger query.
+
+        A column filter is a value or a list of values; `since` / `until` bound
+        the date and `depth_min` / `depth_max` the depth (both inclusive).
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        for col in cls.NPT_COLUMNS:
             if filters.get(col):
                 val = filters[col]
                 if isinstance(val, (list, tuple, set)):
                     clauses.append(f"{col} IN ({','.join('?' * len(val))})")
-                    params.extend(val)
+                    params.extend(sorted(val) if isinstance(val, set) else val)
                 else:
                     clauses.append(f"{col}=?")
                     params.append(val)
-        if filters.get("since"):
-            clauses.append("date >= ?")
-            params.append(filters["since"])
-        if filters.get("until"):
-            clauses.append("date <= ?")
-            params.append(filters["until"])
-        sql = "SELECT * FROM npt_events"
-        if clauses:
-            sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY date, doc_id, id"
+        for key, clause in (("since", "date >= ?"), ("until", "date <= ?"),
+                            ("depth_min", "depth_m >= ?"), ("depth_max", "depth_m <= ?")):
+            if filters.get(key) is not None:
+                clauses.append(clause)
+                params.append(filters[key])
+        return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+    def npt(self, **filters: Any) -> list[NptEvent]:
+        where, params = self._npt_where(filters)
+        sql = "SELECT * FROM npt_events" + where + " ORDER BY date, doc_id, id"
         return [
             NptEvent(
                 doc_id=r["doc_id"], well=r["well"], field_name=r["field_name"], date=r["date"],
@@ -202,6 +228,54 @@ class Store:
             )
             for r in self.conn.execute(sql, params)
         ]
+
+    def npt_summary(self, avoidable_codes: Iterable[str], **filters: Any) -> dict[str, Any]:
+        """Totals over the matching ledger rows, aggregated in SQL.
+
+        Hours are raw sums (no rounding); `avoidable_hours` counts the rows
+        whose code is in `avoidable_codes`.
+        """
+        where, params = self._npt_where(filters)
+        codes = sorted(avoidable_codes)
+        avoidable = (f"COALESCE(SUM(CASE WHEN code IN ({','.join('?' * len(codes))}) "
+                     "THEN hours ELSE 0 END), 0)") if codes else "0"
+        sql = ("SELECT COUNT(*) AS events, COUNT(DISTINCT well) AS wells, COUNT(DISTINCT doc_id) AS reports,"
+               f" COALESCE(SUM(hours), 0) AS hours, {avoidable} AS avoidable_hours"
+               " FROM npt_events" + where)
+        row = self.conn.execute(sql, [*codes, *params]).fetchone()
+        return dict(row)
+
+    def npt_breakdown(self, column: str, **filters: Any) -> list[dict[str, Any]]:
+        """Hours, rows and wells per value of one ledger column, largest first, aggregated in SQL.
+
+        Grouped by `doc_id`, each row also carries the report's well, date and codes.
+        """
+        if column not in self.NPT_COLUMNS:
+            raise ValueError(f"cannot group the NPT ledger by {column!r}")
+        where, params = self._npt_where(filters)
+        sql = (f"SELECT {column} AS key, SUM(hours) AS hours, COUNT(*) AS events,"
+               " COUNT(DISTINCT well) AS wells, MIN(well) AS well, MIN(date) AS date,"
+               " GROUP_CONCAT(DISTINCT code) AS codes"
+               f" FROM npt_events{where} GROUP BY {column} ORDER BY hours DESC, key")
+        return [dict(r) for r in self.conn.execute(sql, params)]
+
+    def catalog(self) -> dict[str, set[str]]:
+        """Every field, well, hole section, formation and NPT code the workspace knows by name."""
+        def column(sql: str) -> set[str]:
+            return {str(r[0]) for r in self.conn.execute(sql) if r[0] and str(r[0]) != "UNKNOWN"}
+
+        out = {
+            "fields": column("SELECT DISTINCT field_name FROM documents")
+            | column("SELECT DISTINCT field_name FROM wells"),
+            "wells": column("SELECT DISTINCT well FROM documents") | column("SELECT name FROM wells"),
+            "sections": column("SELECT DISTINCT hole_section FROM npt_events"),
+            "formations": column("SELECT DISTINCT formation FROM npt_events"),
+            "codes": column("SELECT DISTINCT code FROM npt_events"),
+        }
+        for row in self.conn.execute("SELECT sections, formations FROM wells"):
+            out["sections"].update(s for s in json.loads(row["sections"]) if s)
+            out["formations"].update(f for f in json.loads(row["formations"]) if f)
+        return out
 
     def counts(self) -> dict[str, int]:
         out = {}

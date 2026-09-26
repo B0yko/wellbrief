@@ -152,17 +152,17 @@ class Workspace:
         kwargs = {} if spread_rate is None else {"spread_rate": spread_rate}
         answer = product_ask(question, self.store, self.searcher, narrator=self.narrator, top_k=top_k,
                              **kwargs)
-        stats = answer.structured.get("stats") or {}
-        figures = {k: float(stats[k])
+        computed = answer.figures or {}
+        figures = {k: float(computed[k])
                    for k in ("total_hours", "total_cost_usd", "avoidable_share", "event_count")
-                   if stats.get(k) is not None}
+                   if computed.get(k) is not None}
         return AskResult(
             text=answer.text,
             ranking=[h.doc_id for h in answer.hits],
             citations=[Cited(c.doc_id, c.quote) for c in answer.citations],
             figures=figures,
-            abstained=answer.structured.get("abstained"),
-            warnings=list(answer.structured.get("citation_warnings", [])),
+            abstained=answer.abstained,
+            warnings=list(answer.citation_warnings),
         )
 
     def brief(self, field_name: str, well: str, td_m: float, risk_filters: bool = True) -> Brief:

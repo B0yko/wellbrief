@@ -40,6 +40,32 @@ NPT_CODES: dict[str, dict] = {
 
 AVOIDABLE_CODES = {c for c, v in NPT_CODES.items() if v["avoidable"]}
 
+# Phrases in a question that name an NPT code. The query planner matches them
+# on word boundaries, longer phrases first; the words of a phrase may be joined
+# by spaces, hyphens or underscores or written together ("pack-off", "packoff"),
+# and a trailing plural "s"/"es" is allowed. The code name itself ("stuck_pipe")
+# always matches its code. There is deliberately no bare "plug" (a "plugged"
+# nozzle is not a cementing problem) and no bare "lost" ("time was lost to
+# weather" is not lost circulation).
+CODE_SYNONYMS: dict[str, list[str]] = {
+    "STUCK_PIPE": ["stuck pipe", "stuck", "pack off", "packed off", "packing off", "differential sticking"],
+    "LOST_CIRCULATION": ["lost circulation", "losses", "total losses", "partial losses", "lost returns",
+                         "loss of returns", "loss of circulation"],
+    "WELLBORE_INSTABILITY": ["wellbore instability", "instability", "tight hole", "washout", "caving",
+                             "overpull"],
+    "HOLE_CLEANING": ["hole cleaning", "cuttings bed", "back ream", "reaming"],
+    "FISHING": ["fishing", "fish", "junk in hole"],
+    "DOWNHOLE_TOOL_FAILURE": ["mwd", "mwd failure", "lwd", "tool failure", "downhole tool",
+                              "directional tool"],
+    "RIG_REPAIR": ["rig repair", "mud pump", "fluid end", "drawworks", "top drive", "equipment failure"],
+    "BOP_TEST_FAILURE": ["bop", "blowout preventer", "preventer", "pressure test"],
+    "CEMENT_ISSUE": ["cement", "cementing", "cement job", "bumped plug"],
+    "WAIT_ON_MATERIALS": ["waiting on materials", "wait on materials", "wom", "barite", "logistics"],
+    "WAIT_ON_WEATHER": ["weather", "waiting on weather", "wow", "storm", "wind"],
+    "THIRD_PARTY_STANDBY": ["standby", "third party", "wireline standby"],
+    "HSE_STOP": ["hse", "stop work", "safety stand down"],
+}
+
 HOLE_SECTIONS = ['26"', '17 1/2"', '12 1/4"', '8 1/2"']
 
 # Every document the synthetic corpus generator writes ends with this line.
@@ -71,6 +97,13 @@ BM25_B = 0.75
 EMBED_DIM = 512
 RRF_K = 60          # rank-fusion damping, standard value from the TREC work
 DEFAULT_TOP_K = 8
+# A depth in a question ("around 2,650 m") is read as this many metres either
+# side. It ranks reports with NPT entries in that band higher; it only filters
+# when the question says "at 2,650 m".
+DEPTH_BAND_M = 100.0
+# Reports cited in an answer's text behind each computed figure, largest
+# contributors first. The JSON output lists every contributing report.
+FIGURE_SOURCE_LIMIT = 5
 
 # A risk has to show up on at least this share of comparable offset wells
 # before it goes in the brief. Set low enough to catch a repeat-twice problem

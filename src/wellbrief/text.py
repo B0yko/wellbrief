@@ -36,10 +36,14 @@ STOPWORDS = {
 
 
 def normalise(text: str) -> str:
-    """Fold unicode fractions and dashes so `12¼"` and `12 1/4"` match."""
-    text = unicodedata.normalize("NFKC", text)
+    """Fold unicode fractions and dashes so `12¼"` and `12 1/4"` match.
+
+    The vulgar fractions are replaced before NFKC, which would otherwise turn
+    `12¼` into `121`, a fraction slash and `4` (the digits run together).
+    """
     for frac, repl in _FRACTIONS.items():
         text = text.replace(frac, repl)
+    text = unicodedata.normalize("NFKC", text).replace("\u2044", "/")
     text = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2019", "'")
     return text
 

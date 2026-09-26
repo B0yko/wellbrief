@@ -113,9 +113,13 @@ def cmd_ask(args) -> int:
     else:
         print(answer.text)
         print()
-        print(f"[query plan] {answer.structured['query_plan']}")
-        print(f"[sources]    {', '.join(dict.fromkeys(c.doc_id for c in answer.citations))}")
-        for w in answer.structured.get("citation_warnings", []):
+        print(f"[query plan] {answer.query_plan['summary']}")
+        if not answer.abstained:
+            print(f"[sources]    {', '.join(dict.fromkeys(c.doc_id for c in answer.citations))}")
+        if answer.figure_sources:
+            print(f"[figures]    computed from {len(answer.figure_sources)} reports "
+                  "(all listed under figure_sources in --json)")
+        for w in answer.citation_warnings:
             print(f"[warning]    {w}", file=sys.stderr)
     store.close()
     return 0

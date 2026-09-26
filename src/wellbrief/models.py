@@ -154,16 +154,39 @@ class RiskBrief:
 
 @dataclass
 class Answer:
+    """The result of `qa.ask`.
+
+    `figures` are computed with SQL over the NPT ledger (None when the question
+    scopes nothing countable or no entry matches); `figure_sources` lists every
+    report that contributes to them, with its hours. An answer that abstains
+    carries no figures, no citations and no mitigations, and says in
+    `unmatched` what did not match.
+    """
+
     question: str
     text: str
     citations: list[Citation] = field(default_factory=list)
     hits: list[SearchHit] = field(default_factory=list)
-    structured: dict[str, Any] = field(default_factory=dict)
+    query_plan: dict[str, Any] = field(default_factory=dict)
+    figures: dict[str, Any] | None = None
+    figure_sources: list[dict[str, Any]] = field(default_factory=list)
+    abstained: bool = False
+    unmatched: dict[str, Any] | None = None
+    mitigations: list[dict[str, str]] = field(default_factory=list)
+    citation_warnings: list[str] = field(default_factory=list)
+    narrator: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "question": self.question,
             "text": self.text,
+            "abstained": self.abstained,
+            "unmatched": self.unmatched,
+            "query_plan": self.query_plan,
+            "figures": self.figures,
+            "figure_sources": self.figure_sources,
             "citations": [c.to_dict() for c in self.citations],
-            "structured": self.structured,
+            "mitigations": self.mitigations,
+            "citation_warnings": self.citation_warnings,
+            "narrator": self.narrator,
         }

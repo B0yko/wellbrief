@@ -21,7 +21,7 @@ from .config import DEFAULT_SPREAD_RATE_USD_PER_DAY, NPT_CODES, hours_to_usd
 from .llm import Narrator, OfflineNarrator
 from .models import Citation, Risk, RiskBrief
 from .parse import parse_eowr, parse_incident
-from .search import CODE_SYNONYMS
+from .search import mentions_code
 from .store import Store
 
 
@@ -47,10 +47,8 @@ def _relevance(sentence: str, pattern: Pattern) -> int:
     section_digits = re.sub(r"[^0-9/]", "", pattern.hole_section)
     if section_digits and section_digits in re.sub(r"[^0-9/]", "", low):
         score += 2
-    for phrase in CODE_SYNONYMS.get(pattern.code, []):
-        if phrase in low:
-            score += 2
-            break
+    if mentions_code(sentence, pattern.code):
+        score += 2
     if re.search(r"\b(recommend|should|hold at|reduce|spot|condition|confirm|inspect)\b", low):
         score += 1
     return score

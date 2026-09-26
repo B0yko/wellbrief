@@ -17,6 +17,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
+# The first line of an answer that abstains (see `qa.abstention_text`).
+NO_MATCH = "No records in this workspace match that question."
+
 
 def _fmt_hours(h: float) -> str:
     return f"{h:.1f} h"
@@ -26,6 +29,10 @@ def _fmt_usd(v: float) -> str:
     if v >= 1_000_000:
         return f"${v / 1_000_000:.2f} M"
     return f"${v:,.0f}"
+
+
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 class Narrator:
@@ -45,34 +52,41 @@ class OfflineNarrator(Narrator):
 
     def answer(self, question: str, evidence: list[dict[str, Any]], summary: dict[str, Any]) -> str:
         retrieved = [ev for ev in evidence if ev.get("role", "retrieval") == "retrieval"]
-        figure_sources = summary.get("figure_sources") or []
-        if not retrieved:
-            return (
-                "Nothing in the indexed well files matches that question. "
-                "Either the interval has no history in this archive, or the filters in the "
-                "question are narrower than the data."
-            )
+        figures = summary.get("figures") or {}
+        if not retrieved and not figures:
+            return NO_MATCH
         lines: list[str] = []
-        stats = summary.get("stats") or {}
-        if stats.get("event_count"):
+        if figures.get("event_count"):
+            n = figures["event_count"]
             lines.append(
-                f"{stats['event_count']} matching events across {stats['well_count']} wells, "
-                f"{_fmt_hours(stats['total_hours'])} of non-productive time "
-                f"({_fmt_usd(stats['total_cost_usd'])} at the configured spread rate)."
+                f"{n} NPT {'entry' if n == 1 else 'entries'} on {_plural(figures['well_count'], 'well')}: "
+                f"{_fmt_hours(figures['total_hours'])} of non-productive time, "
+                f"{_fmt_usd(figures['total_cost_usd'])} at {_fmt_usd(figures['spread_rate'])} per day."
             )
-            top = stats.get("by_code") or []
-            if top:
-                worst = ", ".join(f"{c['code']} {_fmt_hours(c['hours'])}" for c in top[:3])
-                lines.append(f"Largest contributors: {worst}.")
-            if stats.get("worst_wells"):
-                ww = ", ".join(f"{w['well']} {_fmt_hours(w['hours'])}" for w in stats["worst_wells"][:3])
-                lines.append(f"Worst wells: {ww}.")
-            if figure_sources:
-                lines.append(f"Largest contributing reports: {', '.join(f'[{d}]' for d in figure_sources)}.")
-        lines.append("")
-        lines.append("From the documents:")
-        for ev in retrieved[:6]:
-            lines.append(f"- {ev['quote']} [{ev['doc_id']}]")
+            if len(figures.get("by_field") or []) > 1:
+                ff = ", ".join(f"{f['field']} {_fmt_hours(f['hours'])}" for f in figures["by_field"])
+                lines.append(f"By field: {ff}.")
+            if figures.get("by_code"):
+                top = ", ".join(f"{c['code']} {_fmt_hours(c['hours'])}" for c in figures["by_code"][:3])
+                lines.append(f"Largest codes: {top}.")
+            if figures.get("by_well"):
+                ww = ", ".join(f"{w['well']} {_fmt_hours(w['hours'])}" for w in figures["by_well"][:3])
+                lines.append(f"Largest wells: {ww}.")
+            sources = summary.get("figure_sources") or []
+            if sources:
+                cited = ", ".join(f"[{s['doc_id']}] {_fmt_hours(s['hours'])}" for s in sources)
+                total = summary.get("report_count") or len(sources)
+                lines.append(f"Largest contributing reports ({len(sources)} of {total}): {cited}.")
+        elif figures:
+            scope = summary.get("scope") or "no filter"
+            where = "in this workspace" if scope == "no filter" else f"for {scope}"
+            lines.append(f"No NPT entry is recorded {where}: {_fmt_hours(0.0)} of non-productive time.")
+        if retrieved:
+            if lines:
+                lines.append("")
+            lines.append("From the documents:")
+            for ev in retrieved[:6]:
+                lines.append(f"- {ev['quote']} [{ev['doc_id']}]")
         if summary.get("mitigations"):
             lines.append("")
             lines.append("Recorded mitigations on wells that avoided it:")
