@@ -19,6 +19,7 @@ from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief
 from .config import DB_PATH, DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
+from .evals.cases import SUITES as EVAL_SUITES
 from .llm import get_narrator
 from .qa import ask as ask_qa
 from .search import Searcher
@@ -240,22 +241,38 @@ def cmd_corpus_generate(args) -> int:
     return 0
 
 
+def _seeds(raw: str) -> list[int]:
+    try:
+        seeds = [int(s) for s in raw.split(",") if s.strip()]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"seeds must be comma-separated integers, not {raw!r}") from None
+    if not seeds:
+        raise argparse.ArgumentTypeError("give at least one seed")
+    return seeds
+
+
 def cmd_eval(args) -> int:
-    from . import evaluate
-    store, searcher = _wire(args)
-    narrator = get_narrator(args.llm_backend)
-    report = evaluate.run(store, searcher, narrator)
+    from .evals import cases, results, runner
+
+    unsupported = [flag for flag, used in (("--ablation", args.ablation), ("--repeats", args.repeats != 1),
+                                           ("--narrator llm", args.narrator != "offline")) if used]
+    if unsupported:
+        print(f"wellbrief eval: {', '.join(unsupported)} is not supported yet", file=sys.stderr)
+        return 2
+    suites = list(EVAL_SUITES) if args.suite == "all" else [args.suite]
+    emit = (lambda line: None) if args.json else print
+    try:
+        report = runner.run(suites, args.seeds, args.argv, risk_filters=not args.no_risk_filters, emit=emit)
+    except cases.CaseError as exc:
+        print(f"wellbrief eval: invalid case file: {exc}", file=sys.stderr)
+        return 2
+    payload = report.to_dict()
+    if args.out:
+        results.write(payload, args.out)
+        emit(f"results written to {args.out}")
     if args.json:
-        print(json.dumps(report, indent=2, ensure_ascii=False))
-    else:
-        print(f"narrator: {report['narrator']}")
-        for r in report["results"]:
-            mark = "pass" if r["passed"] else "FAIL"
-            print(f"  [{mark}] {r['case']:<42}{r['detail']}")
-        print()
-        print(f"{report['passed']}/{report['cases']} passed ({report['pass_rate'] * 100:.0f} %)")
-    store.close()
-    return 0 if report["failed"] == 0 else 1
+        print(json.dumps(results.scrub(payload), indent=2, ensure_ascii=False))
+    return 0 if report.ok else 1
 
 
 # --------------------------------------------------------------------------
@@ -309,7 +326,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--since", required=True, help="ISO date")
     sp.set_defaults(func=cmd_digest)
 
-    sub.add_parser("eval", help="run the accuracy harness").set_defaults(func=cmd_eval)
+    sp = sub.add_parser("eval", help="run the evaluation suites on freshly generated corpora")
+    sp.add_argument("--suite", choices=[*EVAL_SUITES, "all"], default="all")
+    sp.add_argument("--seeds", type=_seeds, default=[SEED],
+                    help=f"comma-separated corpus seeds (default {SEED})")
+    sp.add_argument("--out", type=Path, help="write the results as JSON to this file")
+    sp.add_argument("--no-risk-filters", action="store_true",
+                    help="brief precision cases: build the briefs without the risk filters (min_lift 0, "
+                         "unavoidable codes included) and report them without a score; other briefs keep them")
+    sp.add_argument("--ablation", action="store_true", help="retrieval ablation (not supported yet)")
+    sp.add_argument("--narrator", choices=["offline", "llm"], default="offline",
+                    help="narrator for answers and briefs (only offline is supported yet)")
+    sp.add_argument("--repeats", type=int, default=1, help="repeats per case (not supported yet)")
+    sp.set_defaults(func=cmd_eval)
 
     sp = sub.add_parser("corpus", help="synthetic well-file corpus")
     corpus_sub = sp.add_subparsers(dest="corpus_command", required=True)
@@ -323,7 +352,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
+    args.argv = argv
     return args.func(args)
 
 

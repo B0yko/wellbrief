@@ -66,7 +66,7 @@ def _mentions_truth(tree: ast.AST) -> list[str]:
 
 
 def test_no_module_outside_corpus_and_evals_refers_to_the_sidecar() -> None:
-    """The evaluation package does not exist yet, so no module may read the sidecar."""
+    """The corpus package writes the sidecar and the evaluation package reads it; nothing else names it."""
     offenders = {}
     for path in _modules():
         if CORPUS_PACKAGE in path.parents:
@@ -75,6 +75,38 @@ def test_no_module_outside_corpus_and_evals_refers_to_the_sidecar() -> None:
         if hits:
             offenders[str(path.relative_to(SRC))] = hits
     assert offenders == {}
+
+
+def _names_the_file(tree: ast.AST) -> bool:
+    return any("truth.json" in h or h.startswith("glob") for h in _mentions_truth(tree))
+
+
+def test_inside_the_evaluation_package_only_the_truth_module_names_the_sidecar() -> None:
+    naming = [p.name for p in sorted(EVALS_PACKAGE.rglob("*.py"))
+              if _names_the_file(ast.parse(p.read_text(encoding="utf-8")))]
+    assert naming == ["truth.py"]
+
+
+def _product_imports(tree: ast.AST) -> list[str]:
+    """Imports of wellbrief modules outside the evaluation package."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level >= 2 or (node.level == 0 and (node.module or "").startswith("wellbrief")
+                                   and not (node.module or "").startswith("wellbrief.evals")):
+                found.append(f"{'.' * node.level}{node.module or ''}")
+        elif isinstance(node, ast.Import):
+            found += [a.name for a in node.names
+                      if a.name.startswith("wellbrief") and not a.name.startswith("wellbrief.evals")]
+    return found
+
+
+def test_only_the_adapter_calls_the_product() -> None:
+    """Gold answers never go through product code: every other evaluation module stays inside the package."""
+    offenders = {p.name: hits for p in sorted(EVALS_PACKAGE.rglob("*.py"))
+                 if p.name != "adapter.py" and (hits := _product_imports(ast.parse(p.read_text(encoding="utf-8"))))}
+    assert offenders == {}
+    assert _product_imports(ast.parse((EVALS_PACKAGE / "adapter.py").read_text(encoding="utf-8")))
 
 
 @pytest.mark.parametrize("snippet", [
