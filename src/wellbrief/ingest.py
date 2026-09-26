@@ -24,10 +24,16 @@ def infer_doc_type(name: str) -> str:
 
 
 def load_corpus_dir(path: Path | str) -> list[Document]:
-    """Read a folder of plain-text well files."""
+    """Read a folder of plain-text well files.
+
+    Files whose name starts with an underscore are not documents (the corpus
+    generator's ground-truth sidecar is one) and are never ingested.
+    """
     path = Path(path)
     docs: list[Document] = []
     for file in sorted(path.glob("*.txt")):
+        if file.name.startswith("_"):
+            continue
         text = file.read_text(encoding="utf-8")
         header = parse.parse_header(text)
         docs.append(Document(

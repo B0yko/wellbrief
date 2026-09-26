@@ -42,6 +42,13 @@ AVOIDABLE_CODES = {c for c, v in NPT_CODES.items() if v["avoidable"]}
 
 HOLE_SECTIONS = ['26"', '17 1/2"', '12 1/4"', '8 1/2"']
 
+# Every document the synthetic corpus generator writes ends with this line.
+# The parsers end every section at it, so it is never read as an NPT
+# description, a lesson, a recommendation or a corrective action.
+SYNTHETIC_FOOTER = (
+    "Synthetic demonstration document. Operator, fields, wells, rigs and vendors are fictional."
+)
+
 # --------------------------------------------------------------------------
 # Cost model
 # --------------------------------------------------------------------------
