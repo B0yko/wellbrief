@@ -44,7 +44,9 @@ class OfflineNarrator(Narrator):
     name = "offline"
 
     def answer(self, question: str, evidence: list[dict[str, Any]], summary: dict[str, Any]) -> str:
-        if not evidence:
+        retrieved = [ev for ev in evidence if ev.get("role", "retrieval") == "retrieval"]
+        figure_sources = summary.get("figure_sources") or []
+        if not retrieved:
             return (
                 "Nothing in the indexed well files matches that question. "
                 "Either the interval has no history in this archive, or the filters in the "
@@ -65,9 +67,11 @@ class OfflineNarrator(Narrator):
             if stats.get("worst_wells"):
                 ww = ", ".join(f"{w['well']} {_fmt_hours(w['hours'])}" for w in stats["worst_wells"][:3])
                 lines.append(f"Worst wells: {ww}.")
+            if figure_sources:
+                lines.append(f"Largest contributing reports: {', '.join(f'[{d}]' for d in figure_sources)}.")
         lines.append("")
         lines.append("From the documents:")
-        for ev in evidence[:6]:
+        for ev in retrieved[:6]:
             lines.append(f"- {ev['quote']} [{ev['doc_id']}]")
         if summary.get("mitigations"):
             lines.append("")

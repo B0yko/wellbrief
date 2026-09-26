@@ -109,7 +109,7 @@ def cmd_ask(args) -> int:
         print(answer.text)
         print()
         print(f"[query plan] {answer.structured['query_plan']}")
-        print(f"[sources]    {', '.join(c.doc_id for c in answer.citations)}")
+        print(f"[sources]    {', '.join(dict.fromkeys(c.doc_id for c in answer.citations))}")
         for w in answer.structured.get("citation_warnings", []):
             print(f"[warning]    {w}", file=sys.stderr)
     store.close()
