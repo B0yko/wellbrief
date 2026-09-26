@@ -9,6 +9,7 @@ at query time, and no network access is needed.
 from __future__ import annotations
 
 import array
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable
@@ -48,7 +49,8 @@ CREATE TABLE IF NOT EXISTS npt_events (
     depth_m       REAL NOT NULL,
     mud_weight_sg REAL NOT NULL,
     rig           TEXT NOT NULL,
-    description   TEXT NOT NULL
+    description   TEXT NOT NULL,
+    mwd           TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ix_npt_field ON npt_events(field_name);
 CREATE INDEX IF NOT EXISTS ix_npt_code  ON npt_events(code);
@@ -111,12 +113,12 @@ class Store:
     def put_npt(self, events: Iterable[NptEvent]) -> int:
         rows = [
             (e.doc_id, e.well, e.field_name, e.date, e.code, e.hours, e.hole_section,
-             e.formation, e.depth_m, e.mud_weight_sg, e.rig, e.description)
+             e.formation, e.depth_m, e.mud_weight_sg, e.rig, e.description, e.mwd)
             for e in events
         ]
         self.conn.executemany(
             "INSERT INTO npt_events (doc_id, well, field_name, date, code, hours, hole_section,"
-            " formation, depth_m, mud_weight_sg, rig, description) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " formation, depth_m, mud_weight_sg, rig, description, mwd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         self.conn.commit()
@@ -189,7 +191,7 @@ class Store:
         ]
 
     # Columns of npt_events a caller may filter or group on.
-    NPT_COLUMNS = ("field_name", "well", "code", "hole_section", "formation", "rig", "doc_id")
+    NPT_COLUMNS = ("field_name", "well", "code", "hole_section", "formation", "rig", "mwd", "doc_id")
 
     @classmethod
     def _npt_where(cls, filters: dict[str, Any]) -> tuple[str, list[Any]]:
@@ -224,10 +226,32 @@ class Store:
                 doc_id=r["doc_id"], well=r["well"], field_name=r["field_name"], date=r["date"],
                 code=r["code"], hours=r["hours"], hole_section=r["hole_section"],
                 formation=r["formation"], depth_m=r["depth_m"], mud_weight_sg=r["mud_weight_sg"],
-                rig=r["rig"], description=r["description"],
+                rig=r["rig"], description=r["description"], mwd=r["mwd"],
             )
             for r in self.conn.execute(sql, params)
         ]
+
+    def ddr_features(self, field_name: str | None = None) -> list[dict[str, Any]]:
+        """One row per daily report of a field (or the whole workspace): well,
+        hole section, formation, rig and MWD tool, straight from the parsed
+        metadata. Used to count drilling days and exposed wells per scope
+        without loading full document text."""
+        filters: dict[str, Any] = {"doc_type": "ddr"}
+        if field_name:
+            filters["field_name"] = field_name
+        where, params = self._documents_where(filters)
+        sql = "SELECT doc_id, well, meta FROM documents" + where
+        out = []
+        for r in self.conn.execute(sql, params):
+            meta = json.loads(r["meta"])
+            out.append({
+                "doc_id": r["doc_id"], "well": r["well"],
+                "hole_section": meta.get("hole_section") or "",
+                "formation": meta.get("formation") or "",
+                "rig": meta.get("rig") or "",
+                "mwd": meta.get("mwd") or "",
+            })
+        return out
 
     def npt_summary(self, avoidable_codes: Iterable[str], **filters: Any) -> dict[str, Any]:
         """Totals over the matching ledger rows, aggregated in SQL.
@@ -282,6 +306,21 @@ class Store:
         for table in ("documents", "npt_events", "wells"):
             out[table] = self.conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
         return out
+
+    def corpus_hash(self, field_name: str | None = None) -> str:
+        """sha256 over the sorted (doc_id, sha256(content)) pairs of every
+        document in the store (or one field of it): changes whenever a
+        document is added, removed or edited, independent of insertion order.
+        """
+        filters = {"field_name": field_name} if field_name else {}
+        where, params = self._documents_where(filters)
+        rows = self.conn.execute("SELECT doc_id, text FROM documents" + where, params)
+        pairs = sorted((doc_id, hashlib.sha256(text.encode("utf-8")).hexdigest())
+                       for doc_id, text in rows)
+        digest = hashlib.sha256()
+        for doc_id, content_hash in pairs:
+            digest.update(f"{doc_id}:{content_hash}\n".encode())
+        return digest.hexdigest()
 
 
 # --------------------------------------------------------------------------
@@ -340,6 +379,22 @@ class VectorIndex:
 def index_paths(db_path: Path) -> tuple[Path, Path]:
     base = db_path.with_suffix("")
     return base.with_name(base.name + "_bm25").with_suffix(".json"), base.with_name(base.name + "_vec")
+
+
+def index_manifest_hash(db_path: Path) -> str:
+    """sha256 over the on-disk retrieval index files (BM25 postings, vector
+    data and its metadata) next to `db_path`; empty string when they are not
+    built yet. Stands in for a per-field `manifest.json` until the workspace
+    layout that names one is built."""
+    bm25_path, vec_base = index_paths(db_path)
+    paths = [bm25_path, vec_base.with_suffix(".vec"), vec_base.with_suffix(".vecmeta.json")]
+    digest = hashlib.sha256()
+    found = False
+    for path in paths:
+        if path.exists():
+            found = True
+            digest.update(path.read_bytes())
+    return digest.hexdigest() if found else ""
 
 
 def build_indexes(store: Store, embed_backend: str = EMBED_BACKEND) -> tuple[BM25Index, VectorIndex]:

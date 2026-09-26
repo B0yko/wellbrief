@@ -290,5 +290,6 @@ def npt_events(doc: Document) -> list[NptEvent]:
             mud_weight_sg=p.get("mud_weight_sg") or 0.0,
             rig=p.get("rig") or "",
             description=e["description"],
+            mwd=p.get("mwd") or "",
         ))
     return events

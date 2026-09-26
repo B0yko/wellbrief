@@ -44,6 +44,7 @@ class NptEvent:
     mud_weight_sg: float
     rig: str
     description: str
+    mwd: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -94,13 +95,25 @@ class SearchHit:
 
 @dataclass
 class Risk:
-    """One entry in an offset-well risk register."""
+    """One entry in an offset-well risk register.
+
+    `scope` is `interval` (keyed on hole section and formation) or
+    `equipment` (keyed on `rig` or `mwd`, whichever is set; the other is
+    empty). `applies` is one of `applies`, `does_not_apply` or
+    `not_specified`: whether the planned well's `--rig`/`--mwd` names the
+    same category as this risk (always `applies` for an interval risk, since
+    it does not depend on rig or tool). A risk that does not apply is kept in
+    `risks` so the register still shows it, but `RiskBrief`'s totals skip it.
+    """
 
     risk_id: str
     title: str
     code: str
+    scope: str
     hole_section: str
     formation: str
+    rig: str
+    mwd: str
     depth_window_m: tuple[float, float]
     wells_total: int
     wells_affected: int
@@ -110,6 +123,9 @@ class Risk:
     expected_npt_hours: float
     expected_cost_usd: float
     driver: str
+    lift: float | None = None
+    ratio: float | None = None
+    applies: str = "applies"
     mitigations: list[str] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
     counter_examples: list[str] = field(default_factory=list)
@@ -128,26 +144,41 @@ class RiskBrief:
     generated_from_wells: list[str]
     spread_rate_usd_per_day: float
     risks: list[Risk] = field(default_factory=list)
+    unavoidable_hours: dict[str, float] = field(default_factory=dict)
+    planned_rig: str | None = None
+    planned_mwd: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
     narrative: str = ""
 
     @property
+    def counted_risks(self) -> list[Risk]:
+        """Risks that count toward the totals: every interval risk, and an
+        equipment risk that applies to the plan or that the plan did not
+        speak to (`applies` or `not_specified`, never `does_not_apply`)."""
+        return [r for r in self.risks if r.applies != "does_not_apply"]
+
+    @property
     def total_expected_npt_hours(self) -> float:
-        return sum(r.expected_npt_hours for r in self.risks)
+        return sum(r.expected_npt_hours for r in self.counted_risks)
 
     @property
     def total_exposure_usd(self) -> float:
-        return sum(r.expected_cost_usd for r in self.risks)
+        return sum(r.expected_cost_usd for r in self.counted_risks)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "well_name": self.well_name,
             "field_name": self.field_name,
             "planned_td_m": self.planned_td_m,
+            "planned_rig": self.planned_rig,
+            "planned_mwd": self.planned_mwd,
             "generated_from_wells": self.generated_from_wells,
             "spread_rate_usd_per_day": self.spread_rate_usd_per_day,
             "total_expected_npt_hours": round(self.total_expected_npt_hours, 1),
             "total_exposure_usd": round(self.total_exposure_usd, 0),
+            "unavoidable_hours": {k: round(v, 1) for k, v in self.unavoidable_hours.items()},
             "risks": [r.to_dict() for r in self.risks],
+            "provenance": self.provenance,
             "narrative": self.narrative,
         }
 

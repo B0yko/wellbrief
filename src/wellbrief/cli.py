@@ -3,8 +3,8 @@
 Every command needs no network access. `corpus generate` writes the
 synthetic corpus and its ground truth to a directory; every other command
 works on the local SQLite store and index files. `--json` switches status,
-ask, risk, npt, patterns, digest, eval and corpus generate to
-machine-readable output.
+ask, npt, patterns, digest, eval and corpus generate to machine-readable
+output; `brief` has its own `--format text|md|json` instead.
 """
 
 from __future__ import annotations
@@ -14,9 +14,10 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief
-from .config import DB_PATH, DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND
+from .config import DB_PATH, DEFAULT_SPREAD_RATE_USD_PER_DAY, EMBED_BACKEND, LLM_BACKEND, RISK_MAX_RISKS
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
@@ -125,25 +126,46 @@ def cmd_ask(args) -> int:
     return 0
 
 
-def cmd_risk(args) -> int:
+def cmd_brief(args) -> int:
     store, _ = _wire(args)
     narrator = get_narrator(args.llm_backend)
+    verification_placeholder: dict[str, Any] = {}
+    provenance = riskbrief.build_provenance(store, args.field, args.spread_rate, narrator.name,
+                                            verification_placeholder)
     brief = riskbrief.build_brief(
         store, args.well, args.field, args.td,
         spread_rate=args.spread_rate, narrator=narrator, max_risks=args.max_risks,
+        plan_rig=args.rig, plan_mwd=args.mwd, provenance=provenance,
     )
     check = riskbrief.verify_brief(brief, store)
-    if args.json:
+    verification_placeholder.update(check)   # the provenance block carries the same dict
+
+    for p in check["problems"][:5]:
+        print(f"[warning] {p}", file=sys.stderr)
+
+    label = "" if check["ok"] else "NOT VERIFIED: "
+    if args.format == "json":
         payload = brief.to_dict()
         payload["verification"] = check
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        payload["disclaimer"] = riskbrief.DISCLAIMER
+        payload["not_verified"] = not check["ok"]
+        out = json.dumps(payload, indent=2, ensure_ascii=False)
+    elif args.format == "md":
+        out = riskbrief.render_markdown(brief, check)
     else:
-        print(brief.narrative)
-        print()
-        print(f"[verification] {check['citations_checked']} citations checked, "
-              f"{'all verbatim' if check['ok'] else str(len(check['problems'])) + ' problems'}")
-        for p in check["problems"][:5]:
-            print(f"[warning] {p}", file=sys.stderr)
+        lines = [f"{label}{brief.narrative}" if label else brief.narrative, ""]
+        lines.append(f"[verification] {check['citations_checked']} citations checked, "
+                    f"{'all verbatim' if check['ok'] else str(len(check['problems'])) + ' problems'}")
+        lines.append("")
+        lines.append(riskbrief.DISCLAIMER)
+        out = "\n".join(lines)
+
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(out if out.endswith("\n") else out + "\n", encoding="utf-8")
+        print(f"brief written to {args.out}")
+    else:
+        print(out)
     store.close()
     return 0 if check["ok"] else 2
 
@@ -182,9 +204,11 @@ def cmd_patterns(args) -> int:
         if not patterns:
             print(f"No repeating pattern clears the threshold on {args.field}.")
         for p in patterns:
-            print(f"{p.code} / {p.hole_section} / {p.formation}")
+            where = f"{p.hole_section} / {p.formation}" if p.scope == "interval" else (p.rig or p.mwd)
+            metric = f"lift {p.lift:.2f}" if p.lift is not None else f"ratio {p.ratio:.2f}"
+            print(f"{p.code} [{p.scope}] {where}")
             print(f"  {p.wells_affected}/{p.wells_total} wells ({p.probability * 100:.0f} %), "
-                  f"{p.hours_total:,.1f} h total, "
+                  f"{p.hours_total:,.1f} h total, {metric}, "
                   f"mean {p.mean_hours_per_affected_well:.1f} h per affected well")
             if p.driver:
                 print(f"  driver: {p.driver}")
@@ -311,12 +335,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--top-k", type=int, default=8)
     sp.set_defaults(func=cmd_ask)
 
-    sp = sub.add_parser("risk", help="build an offset risk register for a planned well")
+    sp = sub.add_parser("brief", help="build an offset-well risk brief for a planned well")
     sp.add_argument("--well", required=True, help="name of the planned well, e.g. ORD-NEXT")
     sp.add_argument("--field", required=True, help="field whose offset wells are used, e.g. Orrindale")
     sp.add_argument("--td", type=float, required=True, help="planned total depth in metres")
-    sp.add_argument("--max-risks", type=int, default=8)
-    sp.set_defaults(func=cmd_risk)
+    sp.add_argument("--rig", help="planned rig; marks rig-keyed risks as applies or does-not-apply")
+    sp.add_argument("--mwd", help="planned MWD tool; marks tool-keyed risks as applies or does-not-apply")
+    sp.add_argument("--max-risks", type=int, default=RISK_MAX_RISKS)
+    sp.add_argument("--format", choices=["text", "md", "json"], default="text")
+    sp.add_argument("--out", type=Path, help="write the brief to this file instead of stdout")
+    sp.set_defaults(func=cmd_brief)
 
     sp = sub.add_parser("npt", help="non-productive time rollup")
     sp.add_argument("--field")

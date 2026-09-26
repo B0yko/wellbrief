@@ -20,9 +20,10 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .. import __version__
-from ..analytics import find_patterns
+from ..analytics import find_patterns, interval_patterns
 from ..corpus import FORMATS, build_corpus, write_corpus
 from ..embed import get_embedder
 from ..ingest import ingest, load_corpus_dir
@@ -134,6 +135,7 @@ def render(out_dir: Path, seed: int, fmt: str) -> Path:
 _DRIVER_KINDS = {"mud_weight_sg": "mud_weight", "rig": "rig", "tool_string": "tool"}
 
 
+
 class Workspace:
     """A product store built from one generated corpus, in a directory of its own."""
 
@@ -166,22 +168,28 @@ class Workspace:
         )
 
     def brief(self, field_name: str, well: str, td_m: float, risk_filters: bool = True) -> Brief:
-        if not risk_filters:
-            raise NotSupported("the brief cannot be built without its risk filters yet")
-        brief = build_brief(self.store, well, field_name, td_m, narrator=self.narrator)
+        brief = build_brief(self.store, well, field_name, td_m, narrator=self.narrator,
+                            risk_filters=risk_filters)
         check = verify_brief(brief, self.store)
-        drivers = {(p.code, p.hole_section, p.formation):
-                   (_DRIVER_KINDS.get(p.driver_detail.get("attribute", "")), p.driver_detail.get("category"))
-                   for p in find_patterns(self.store, field_name)}
+        find_kwargs: dict[str, Any] = {} if risk_filters else {"min_lift": 0.0, "avoidable_only": False}
+        drivers = {}
+        for p in find_patterns(self.store, field_name, **find_kwargs):
+            key = (p.code, "interval", p.hole_section, p.formation) if p.scope == "interval" \
+                else (p.code, "equipment", p.rig, p.mwd)
+            drivers[key] = (_DRIVER_KINDS.get(p.driver_detail.get("attribute", "")),
+                           p.driver_detail.get("category"))
         risks = []
         for r in brief.risks:
             # The brief lists each mitigation's source report as one of the
             # risk's last citations, in the same order as the mitigations.
             sources = r.citations[len(r.citations) - len(r.mitigations):] if r.mitigations else []
-            kind, category = drivers.get((r.code, r.hole_section, r.formation), (None, None))
+            key = (r.code, "interval", r.hole_section, r.formation) if r.scope == "interval" \
+                else (r.code, "equipment", r.rig, r.mwd)
+            kind, category = drivers.get(key, (None, None))
             risks.append(Risk(
-                code=r.code, scope="interval", section=r.hole_section or None, formation=r.formation or None,
-                rig=None, mwd=None, driver=r.driver, driver_kind=kind, driver_category=category,
+                code=r.code, scope=r.scope, section=r.hole_section or None, formation=r.formation or None,
+                rig=r.rig or None, mwd=r.mwd or None, driver=r.driver, driver_kind=kind,
+                driver_category=category,
                 mitigations=[Mitigation(text, src.doc_id)
                              for text, src in zip(r.mitigations, sources, strict=True)],
                 citations=[Cited(c.doc_id, c.quote) for c in r.citations],
@@ -189,7 +197,11 @@ class Workspace:
         return Brief(risks=risks, verified=bool(check["ok"]), problems=list(check["problems"]))
 
     def patterns(self, field_name: str) -> list[Pattern]:
-        return [Pattern(p.code, p.formation, p.hours_total) for p in find_patterns(self.store, field_name)]
+        """Interval-scope patterns only: this feeds `discovery`, which asks
+        for the code and formation a place in the well keeps costing, not a
+        piece of equipment (which has no formation)."""
+        return [Pattern(p.code, p.formation, p.hours_total)
+                for p in interval_patterns(self.store, field_name)]
 
     def ledger(self, field_name: str | None) -> list[LedgerRow]:
         """The parsed NPT rows of one field, or of the whole workspace (None).

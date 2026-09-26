@@ -112,15 +112,23 @@ class OfflineNarrator(Narrator):
             "",
         ]
         for i, r in enumerate(brief.risks, start=1):
-            lines.append(f"{i}. {r.title}")
+            applies_note = {
+                "does_not_apply": " (does not apply to this plan, excluded from totals)",
+                "not_specified": " (plan did not specify; counted as applying)",
+            }.get(r.applies, "")
+            lines.append(f"{i}. {r.title}{applies_note}")
             lines.append(
                 f"   Hit {r.wells_affected} of {r.wells_total} offset wells "
                 f"({r.probability * 100:.0f} %). Mean {_fmt_hours(r.mean_npt_hours)} when it happens, "
                 f"P90 {_fmt_hours(r.p90_npt_hours)}. Expected carry "
                 f"{_fmt_hours(r.expected_npt_hours)} / {_fmt_usd(r.expected_cost_usd)}."
             )
-            lines.append(f"   Where: {r.hole_section} section, {r.formation}, "
-                         f"{int(r.depth_window_m[0]):,}-{int(r.depth_window_m[1]):,} m.")
+            if r.scope == "equipment":
+                lines.append(f"   Where: {r.driver or (r.rig and f'rig {r.rig}') or f'MWD {r.mwd}'}, "
+                             f"{int(r.depth_window_m[0]):,}-{int(r.depth_window_m[1]):,} m.")
+            else:
+                lines.append(f"   Where: {r.hole_section} section, {r.formation}, "
+                             f"{int(r.depth_window_m[0]):,}-{int(r.depth_window_m[1]):,} m.")
             if r.driver:
                 lines.append(f"   Driver in the data: {r.driver}")
             for m in r.mitigations[:3]:
@@ -128,6 +136,11 @@ class OfflineNarrator(Narrator):
             if r.counter_examples:
                 lines.append(f"   Wells that avoided it: {', '.join(r.counter_examples[:6])}")
             lines.append(f"   Evidence: {', '.join(c.doc_id for c in r.citations[:4])}")
+            lines.append("")
+        if brief.unavoidable_hours:
+            total = sum(brief.unavoidable_hours.values())
+            codes = ", ".join(brief.unavoidable_hours)
+            lines.append(f"Unavoidable background NPT: {_fmt_hours(total)} ({codes}).")
             lines.append("")
         return "\n".join(lines).rstrip()
 
