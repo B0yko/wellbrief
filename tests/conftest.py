@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from corpus_files import ParsedCorpus, generated
 
+from corpus_files import ParsedCorpus, generated
 from wellbrief.corpus import SEED
 
 SEEDS = (SEED, 7, 42)

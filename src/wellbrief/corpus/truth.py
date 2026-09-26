@@ -53,7 +53,8 @@ def _planted_patterns(fields: tuple[FieldSpec, ...]) -> list[dict[str, Any]]:
                                       "formation": CARBONATE}]})
             elif pattern == "G3":
                 out.append({"id": "G3", "field": spec.name, "scope": "equipment", "driver": "tool",
-                            "keys": [{"code": "DOWNHOLE_TOOL_FAILURE", "mwd": G3_TOOL, "section": G3_SECTION}],
+                            "keys": [{"code": "DOWNHOLE_TOOL_FAILURE", "mwd": G3_TOOL,
+                                      "section": G3_SECTION}],
                             "bht_limit_c": G3_BHT_LIMIT_C})
             else:
                 out.append({"id": "G4", "field": spec.name, "scope": "equipment", "driver": "rig",

@@ -87,7 +87,7 @@ def mine_mitigations(store: Store, pattern: Pattern, limit: int = 4) -> list[tup
 
     seen: set[str] = set()
     out: list[tuple[str, str]] = []
-    for score, sentence, doc_id in sorted(candidates, key=lambda c: -c[0]):
+    for _score, sentence, doc_id in sorted(candidates, key=lambda c: -c[0]):
         key = re.sub(r"[^a-z0-9 ]", "", sentence.lower())[:90]
         if key in seen:
             continue

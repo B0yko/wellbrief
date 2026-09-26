@@ -137,7 +137,8 @@ def metadata(args: list[str], suites: list[str], seeds: list[int], options: dict
 def _replacements() -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for base, label in ((tempfile.gettempdir(), "<tmp>"), (os.getcwd(), "."), (str(Path.home()), "~"),
-                        (sys.prefix, "<python>"), (sys.base_prefix, "<python>"), (str(_PACKAGE), "<wellbrief>")):
+                        (sys.prefix, "<python>"), (sys.base_prefix, "<python>"),
+                        (str(_PACKAGE), "<wellbrief>")):
         for form in {base, os.path.realpath(base)}:
             if len(form) > 1:
                 pairs.append((form, label))

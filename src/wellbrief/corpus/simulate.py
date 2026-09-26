@@ -116,11 +116,12 @@ class WellSim:
     # -- building blocks --------------------------------------------------
     def _fixed(self, sec: SectionPlan, text: str, lo: float, hi: float, *, sets_mw: float | None = None,
                sets_mud: str | None = None, tag: str = "", hint: str = "") -> Op:
-        return Op("fixed", sec, text, tenths=tenths(self.rng.uniform(lo, hi)), sets_mw=sets_mw, sets_mud=sets_mud,
-                  tag=tag, hint=hint)
+        return Op("fixed", sec, text, tenths=tenths(self.rng.uniform(lo, hi)), sets_mw=sets_mw,
+                  sets_mud=sets_mud, tag=tag, hint=hint)
 
     @staticmethod
-    def _move(sec: SectionPlan, a: int, b: int, speed: float, text: str, *, tag: str = "", hint: str = "") -> Op:
+    def _move(sec: SectionPlan, a: int, b: int, speed: float, text: str, *, tag: str = "",
+              hint: str = "") -> Op:
         return Op("move", sec, text, a=a, b=b, speed=speed, tag=tag, hint=hint)
 
     def _npt(self, sec: SectionPlan, variant: str, duration: int, depth: int, **params: object) -> Op:
@@ -146,7 +147,8 @@ class WellSim:
             anchors: list[tuple[int, list[Op]]] = []
             if k == 0:
                 if "G4" in spec.patterns and well.rig != G4_RIG:
-                    ops.append(self._fixed(sec, "Inspected the mud pumps and changed the fluid ends before spud.",
+                    ops.append(self._fixed(sec,
+                                           "Inspected the mud pumps and changed the fluid ends before spud.",
                                            1.0, 1.0))
                 ops.append(self._fixed(sec, f"Made up the {sec.size} BHA and spudded the well.", 1.5, 2.5,
                                        sets_mw=mw, sets_mud=sec.mud_system))
@@ -186,14 +188,16 @@ class WellSim:
                      f"{SALT}.", 1.0, 2.0, sets_mw=well.salt_mw_sg)]))
             if "G1" in spec.patterns and well.salt_mw_ok:
                 for d in range(salt.top_m + 250, salt.base_m, 250):
-                    out.append((d, [self._fixed(sec, f"Pumped a saturated brine sweep at {fmt_m(d)} m.", 0.5, 0.5)]))
+                    out.append((d, [self._fixed(sec, f"Pumped a saturated brine sweep at {fmt_m(d)} m.",
+                                                0.5, 0.5)]))
         carbonate = self._has(sec, CARBONATE, base)
         if carbonate is not None and "G2" in spec.patterns:
             if well.lcm_pretreat:
                 pill = rng.randint(carbonate.top_m - 8, carbonate.top_m - 4)
                 self.pill_depth = pill
                 out.append((pill, [self._fixed(
-                    sec, f"Spotted a 30 bbl fibrous LCM pill at {fmt_m(pill)} m, just above the {CARBONATE} top, "
+                    sec, f"Spotted a 30 bbl fibrous LCM pill at {fmt_m(pill)} m, "
+                         f"just above the {CARBONATE} top, "
                          f"and cut the flow rate to {PRETREAT_FLOW_GPM} gpm before drilling in.", 0.8, 1.2)]))
             else:
                 duration = tenths(rng.uniform(16.0, 28.0))
@@ -257,7 +261,8 @@ class WellSim:
             bop = self._fixed(sec, "Nippled up the BOP stack and pressure tested it.", 10.0, 14.0, tag="bop",
                               hint=f"drill out the {casing} shoe and drill ahead in {nxt.size} hole.")
         else:
-            bop = self._fixed(sec, "Installed the casing hanger seal assembly and pressure tested the BOP stack.",
+            bop = self._fixed(sec,
+                              "Installed the casing hanger seal assembly and pressure tested the BOP stack.",
                               5.0, 8.0, tag="bop",
                               hint=f"drill out the {casing} shoe and drill ahead in {nxt.size} hole.")
         ops += [
@@ -287,21 +292,24 @@ class WellSim:
             ops.append(self._npt(sec, "g1_fishing", tenths(fishing), stuck))
         else:
             ops += [
-                self._npt(sec, "g1_packoff_freed", tenths(rng.uniform(20.0, 40.0)), stuck, casing=casing, mw=mw),
-                self._move(sec, stuck, sec.top_m, rng.uniform(150.0, 200.0), "Pumped out of hole from {a} to {b}.",
+                self._npt(sec, "g1_packoff_freed", tenths(rng.uniform(20.0, 40.0)), stuck,
+                          casing=casing, mw=mw),
+                self._move(sec, stuck, sec.top_m, rng.uniform(150.0, 200.0),
+                           "Pumped out of hole from {a} to {b}.", hint=cleanout),
+                self._move(sec, sec.top_m, 0, self.trip_speed, "Pulled out of hole from {a} to {b}.",
                            hint=cleanout),
-                self._move(sec, sec.top_m, 0, self.trip_speed, "Pulled out of hole from {a} to {b}.", hint=cleanout),
             ]
         ops += [
             self._fixed(sec, "Made up a cleanout assembly.", 1.0, 2.0, hint=cleanout),
             self._move(sec, 0, salt.top_m, self.trip_speed, "Ran in hole from {a} to {b}.", hint=cleanout),
-            self._move(sec, salt.top_m, salt.base_m, rng.uniform(120.0, 160.0), f"Reamed {SALT} from {{a}} to {{b}}.",
-                       hint=cleanout),
+            self._move(sec, salt.top_m, salt.base_m, rng.uniform(120.0, 160.0),
+                       f"Reamed {SALT} from {{a}} to {{b}}.", hint=cleanout),
             self._move(sec, salt.base_m, base, self.trip_speed, "Ran in hole from {a} to {b}.",
                        hint=f"circulate, pull out of hole and run the {casing}."),
             self._fixed(sec, f"Circulated the hole clean at {fmt_m(base)} m.", 2.0, 3.0,
                         hint=f"pull out of hole and run the {casing}."),
-            self._move(sec, base, 0, self.trip_speed, trip_text, tag="casing_trip_out", hint=f"run the {casing}."),
+            self._move(sec, base, 0, self.trip_speed, trip_text, tag="casing_trip_out",
+                       hint=f"run the {casing}."),
         ]
         return ops
 
@@ -318,8 +326,10 @@ class WellSim:
             ops.append(self._npt(sec, "standby_wireline", tenths(rng.uniform(1.5, 6.0)), td))
         ops += [
             self._fixed(sec, f"Rigged up wireline and logged the {sec.size} hole from {fmt_m(td)} m to "
-                             f"{fmt_m(sec.top_m)} m.", 12.0, 18.0, tag="log", hint=f"run and cement the {liner}."),
-            self._move(sec, 0, td, sec.casing_speed_m_per_h, f"Ran the {liner} on drill pipe from {{a}} to {{b}}.",
+                             f"{fmt_m(sec.top_m)} m.", 12.0, 18.0, tag="log",
+                        hint=f"run and cement the {liner}."),
+            self._move(sec, 0, td, sec.casing_speed_m_per_h,
+                       f"Ran the {liner} on drill pipe from {{a}} to {{b}}.",
                        tag="casing_run", hint=f"finish running and cement the {liner}."),
             self._fixed(sec, f"Pumped spacer and cement slurry for the {liner}.", 1.5, 2.5, tag="cement",
                         hint="displace the cement and set the liner hanger."),
@@ -371,7 +381,8 @@ class WellSim:
                 self.g3_last_depth = op.event.depth_m
             if op.event.variant == "g4_pump":
                 # Worded when it happens, so only a repair that follows another says so.
-                op.event.params["repeat"] = " Repeat failure on this pump during the well." if self.pump_repairs else ""
+                op.event.params["repeat"] = (" Repeat failure on this pump during the well."
+                                             if self.pump_repairs else "")
                 self.pump_repairs += 1
 
     def _roll(self, segs: list[Segment]) -> None:
@@ -416,7 +427,8 @@ class WellSim:
             lo, hi = max(a, G2_CROSSING_M + 1), min(b, G2_PARTIAL_BASE_M - 1)
             if lo <= hi and rng.random() < G2_PARTIAL_P:
                 d = rng.randint(lo, hi)
-                insert_at_depth(self.queue, d, [self._npt(sec, "g2_partial", tenths(rng.uniform(6.0, 14.0)), d,
+                insert_at_depth(self.queue, d, [self._npt(sec, "g2_partial",
+                                                          tenths(rng.uniform(6.0, 14.0)), d,
                                                           rate=rng.randint(15, 40))])
         if self.g3_last_depth is not None and sec.size == G3_SECTION:
             # A replacement module drills at least 30 m before it can fail again.
@@ -424,7 +436,8 @@ class WellSim:
             if lo <= hi and rng.random() < G3_REPEAT_P:
                 insert_at_depth(self.queue, *self._mwd_failure(sec, rng.randint(lo, hi)))
 
-    def _report(self, n: int, doc_id: str, start: int, segs: list[Segment], acts: list[Activity]) -> DayReport:
+    def _report(self, n: int, doc_id: str, start: int, segs: list[Segment],
+                acts: list[Activity]) -> DayReport:
         spec, well, t = self.spec, self.well, self.trng
         end = self.hole
         sec = segs[-1].op.section
@@ -432,7 +445,8 @@ class WellSim:
         entries = [a.entry for a in acts if a.entry is not None]
         formations = formations_between(spec.formations, start, end)
         formations += [e.formation for e in entries if e.formation not in formations]
-        cosmetics: dict[str, object] = {"pv": t.randint(16, 32), "yp": t.randint(12, 26), "bit": self.bits[sec.size]}
+        cosmetics: dict[str, object] = {"pv": t.randint(16, 32), "yp": t.randint(12, 26),
+                                        "bit": self.bits[sec.size]}
         remarks = [f"Casing programme for this section: {sec.casing}."]
         if drilled:
             wob, rpm, flow = DRILLING_PARAMETERS[sec.size]
@@ -444,12 +458,13 @@ class WellSim:
                 if a < carbonate.top_m + PRETREAT_INTERVAL_M and b > self.pill_depth:
                     cosmetics["flow"] = PRETREAT_FLOW_GPM
                 if a < carbonate.top_m + PRETREAT_INTERVAL_M and b > carbonate.top_m:
-                    remarks.append(f"Seepage losses of {t.randint(2, 4)} bbl/h while drilling {CARBONATE} with "
-                                   f"LCM in the system.")
+                    remarks.append(f"Seepage losses of {t.randint(2, 4)} bbl/h "
+                                   f"while drilling {CARBONATE} with LCM in the system.")
         remarks.append(f"Next 24 h: {self._outlook()}")
         return DayReport(
             doc_id=doc_id, report_no=n, section=sec, depth_start=start, depth_end=end,
-            formation_end=spec.formation_at(end), mud_system=self.mud, mud_weight_sg=self.mw, bht_c=spec.bht_c(end),
+            formation_end=spec.formation_at(end), mud_system=self.mud, mud_weight_sg=self.mw,
+            bht_c=spec.bht_c(end),
             mwd=well.mwd_by_section[sec.size], drilled=bool(drilled), entries=entries, activities=acts,
             remarks=remarks, cosmetics=cosmetics, formations=formations,
         )

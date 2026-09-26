@@ -16,10 +16,45 @@ dependencies = []
 wellbrief = "wellbrief.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "mypy>=2.3",
+    "pytest>=9.1",
+    "pytest-cov>=7.1",
+    "ruff>=0.16.9",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wellbrief"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+# tests/ is a source root so its helper modules sort as first-party imports.
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# No rule is ignored globally; the few justified exceptions are inline noqa comments with a reason.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+    "C4",   # flake8-comprehensions
+    "BLE",  # flake8-blind-except: every broad except states why
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wellbrief"]
+combine-as-imports = true
+
+[tool.mypy]
+strict = true
+files = ["src"]
+python_version = "3.12"

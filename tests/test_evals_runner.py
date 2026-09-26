@@ -6,14 +6,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-import evals_mini as mini
 import pytest
 
+import evals_mini as mini
 from wellbrief import cli
 from wellbrief.evals import adapter, runner, suites, truth
 from wellbrief.evals.cases import Case
 
-MINI_TRUTH: dict[str, Any] = {**mini.sidecar(), "wells": [mini.well("ORD-101", "Orrindale", "Orrin-1", G1="clean")]}
+MINI_TRUTH: dict[str, Any] = {**mini.sidecar(),
+                              "wells": [mini.well("ORD-101", "Orrindale", "Orrin-1", G1="clean")]}
 
 
 def _case(category: str = "arithmetic", gate: bool = True, **params: Any) -> Case:
@@ -25,7 +26,8 @@ def ctx(tmp_path: Path) -> suites.Context:
     return suites.Context(1, tmp_path / "corpus", tmp_path, truth.load(MINI_TRUTH))
 
 
-def test_an_exception_becomes_a_failure_with_its_text(ctx: suites.Context, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_exception_becomes_a_failure_with_its_text(ctx: suites.Context,
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(case: Case, ctx: suites.Context) -> suites.Outcome:
         raise RuntimeError("the index is on fire")
 
@@ -35,7 +37,8 @@ def test_an_exception_becomes_a_failure_with_its_text(ctx: suites.Context, monke
     assert result.detail == "error: RuntimeError: the index is on fire"
 
 
-def test_a_missing_feature_is_a_failure_that_says_so(ctx: suites.Context, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_missing_feature_is_a_failure_that_says_so(ctx: suites.Context,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
     def missing(case: Case, ctx: suites.Context) -> suites.Outcome:
         raise adapter.NotSupported("no classifier")
 
@@ -79,7 +82,8 @@ def test_corpus_setup_errors_fail_every_case(monkeypatch: pytest.MonkeyPatch) ->
     assert len(lines) == 2
 
 
-def _row(passed: bool | None, gate: bool, category: str = "retrieval-precision", **metrics: Any) -> runner.CaseResult:
+def _row(passed: bool | None, gate: bool, category: str = "retrieval-precision",
+         **metrics: Any) -> runner.CaseResult:
     return runner.CaseResult("extended", 1, "x", category, gate, None if gate else "r", passed, "", metrics)
 
 
@@ -109,7 +113,8 @@ def test_informational_rows_are_reported_but_not_counted() -> None:
     assert " INFO " in runner.format_row(rows[1])
 
 
-def test_no_risk_filters_reaches_brief_precision_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_risk_filters_reaches_brief_precision_only(tmp_path: Path,
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     built: list[bool] = []
 
     class Stub:
@@ -147,7 +152,8 @@ def test_end_to_end_on_the_default_corpus(tmp_path: Path, monkeypatch: pytest.Mo
         'question = "How many hours of stuck pipe on Orrindale?"\nfigure = "total_hours"\n'
         'gold_sql = "SELECT ROUND(SUM(hours), 1) FROM truth_events '
         'WHERE field = \'Orrindale\' AND code = \'STUCK_PIPE\'"\n'
-        '[[case]]\nid = "broken"\ncategory = "arithmetic"\ngate = false\nreason = "exercises the error path"\n'
+        '[[case]]\nid = "broken"\ncategory = "arithmetic"\ngate = false\n'
+        'reason = "exercises the error path"\n'
         'question = "How many hours of stuck pipe on Orrindale?"\nfigure = "total_hours"\n'
         'gold_sql = "SELECT no_such_column FROM truth_events"\n',
         encoding="utf-8")

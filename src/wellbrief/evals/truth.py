@@ -69,8 +69,8 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
                     "days_on_well", "salt_mw_sg", "salt_mw_ok", "lcm_pretreat", "cites"),
     "truth_docs": ("doc_id", "type", "field", "well", "date", "file", "sections", "formations", "rig", "mwd",
                    "report_no", "drilled", "depth_start_m", "depth_end_m", "formation_at_td", "mud_weight_sg",
-                   "bht_c", "npt_hours", "productive_hours", "code", "hours", "depth_m", "section", "formation",
-                   "event_id", "event_ids", "occurrence"),
+                   "bht_c", "npt_hours", "productive_hours", "code", "hours", "depth_m", "section",
+                   "formation", "event_id", "event_ids", "occurrence"),
     "truth_events": ("event_id", "doc_id", "well", "field", "date", "code", "hours", "depth_m", "section",
                      "formation", "rig", "mwd", "pattern", "kind", "variant", "occurrence", "part", "parts"),
     "truth_sentences": ("doc_id", "well", "field", "kind", "text", "label", "patterns", "code"),
@@ -78,8 +78,8 @@ _COLUMNS: dict[str, tuple[str, ...]] = {
 
 # Document columns that only one document type carries; every other listed column is required of every record.
 _DOC_TYPE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "ddr": ("report_no", "drilled", "depth_start_m", "depth_end_m", "formation_at_td", "mud_weight_sg", "bht_c",
-            "npt_hours", "productive_hours"),
+    "ddr": ("report_no", "drilled", "depth_start_m", "depth_end_m", "formation_at_td", "mud_weight_sg",
+            "bht_c", "npt_hours", "productive_hours"),
     "eowr": (),
     "incident": ("code", "hours", "depth_m", "section", "formation", "event_id", "event_ids", "occurrence"),
 }
@@ -174,7 +174,8 @@ def load(data: dict[str, Any]) -> Truth:
     try:
         _check_values(data)
         meta = {k: data.get(k) for k in ("schema", "seed", "scale", "formats", "footer")}
-        conn.executemany("INSERT INTO truth_meta VALUES (?, ?)", [(k, json.dumps(v)) for k, v in meta.items()])
+        conn.executemany("INSERT INTO truth_meta VALUES (?, ?)",
+                         [(k, json.dumps(v)) for k, v in meta.items()])
         _insert(conn, "truth_fields", data["fields"])
         _insert(conn, "truth_wells", data["wells"])
         for w in data["wells"]:
@@ -189,7 +190,8 @@ def load(data: dict[str, Any]) -> Truth:
                 conn.execute(
                     "INSERT INTO truth_patterns VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (p["id"], p["field"], p["scope"], p["driver"], json.dumps(key, sort_keys=True),
-                     key.get("code"), key.get("section"), key.get("formation"), key.get("rig"), key.get("mwd")))
+                     key.get("code"), key.get("section"), key.get("formation"), key.get("rig"),
+                     key.get("mwd")))
     except (KeyError, TypeError, AttributeError, sqlite3.Error) as exc:
         raise TruthError(f"the truth file is not in the expected shape: {exc!r}") from exc
     conn.commit()

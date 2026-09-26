@@ -201,7 +201,8 @@ def render_eowr(well: WellRecord) -> list[str]:
         f"Days on well: {days}    Total depth: {fmt_m(well.td_m)} m MD",
         "",
         "1. WELL SUMMARY",
-        *wrap("  ", f"{well.name} was drilled as a development well on {spec.name} to {fmt_m(well.td_m)} m MD.", 4),
+        *wrap("  ", f"{well.name} was drilled as a development well on {spec.name} "
+                    f"to {fmt_m(well.td_m)} m MD.", 4),
         *wrap("  ", "Four hole sections were drilled: " + ", ".join(s.size for s in spec.sections) + ".", 4),
         *wrap("  ", f"Casing: {casing}.", 4),
         *wrap("  ", _mud_summary(well), 4),
@@ -240,7 +241,8 @@ def render_incident(well: WellRecord, inc: Incident) -> list[str]:
         *wrap("", source, 2),
         "",
         "1. LOCATION",
-        f"  Depth: {fmt_m(event.depth_m)} m MD    Hole section: {start.section.size}    Formation: {event.formation}",
+        f"  Depth: {fmt_m(event.depth_m)} m MD    Hole section: {start.section.size}    "
+        f"Formation: {event.formation}",
         f"  Formation temperature at depth (estimated): {spec.bht_c(event.depth_m)} C",
         "",
         "2. SEQUENCE OF EVENTS",

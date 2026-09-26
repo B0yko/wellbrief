@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import evals_mini as mini
 import pytest
 
+import evals_mini as mini
 from wellbrief.evals import adapter, suites, truth
 from wellbrief.evals.cases import Case
 
@@ -21,8 +21,10 @@ def _vessra() -> dict[str, Any]:
     data = mini.sidecar(fields=[mini.field(VSS, "VSS", ["Vessra-3", "Vessra-5"], ["PJ-3"], ["G4"])])
     data["planted_patterns"] = [{"id": "G4", "field": VSS, "scope": "equipment", "driver": "rig",
                                  "keys": [{"code": "RIG_REPAIR", "rig": "Vessra-3"}]}]
-    wells = [mini.well("VSS-201", VSS, "Vessra-3", G4="affected"), mini.well("VSS-203", VSS, "Vessra-3", G4="affected"),
-             mini.well("VSS-202", VSS, "Vessra-5", G4="clean"), mini.well("VSS-204", VSS, "Vessra-5", G4="clean")]
+    wells = [mini.well("VSS-201", VSS, "Vessra-3", G4="affected"),
+             mini.well("VSS-203", VSS, "Vessra-3", G4="affected"),
+             mini.well("VSS-202", VSS, "Vessra-5", G4="clean"),
+             mini.well("VSS-204", VSS, "Vessra-5", G4="clean")]
     ddrs = [mini.ddr(f"DDR-{w['well']}-001", w, '8 1/2"', "Vessra Carbonate") for w in wells]
     eowrs = [mini.eowr(f"EOWR-{w['well']}", w) for w in wells]
     data["wells"], data["documents"] = wells, ddrs + eowrs
@@ -71,9 +73,9 @@ def _ctx(tmp_path: Path, data: dict[str, Any], **answers: Any) -> suites.Context
 def _risk(code: str = "RIG_REPAIR", rig: str | None = "Vessra-3", driver_kind: str | None = "rig",
           driver_category: str | None = "Vessra-3", mitigations: list[adapter.Mitigation] | None = None,
           scope: str = "equipment", section: str | None = None, formation: str | None = None) -> adapter.Risk:
-    return adapter.Risk(code=code, scope=scope, section=section, formation=formation, rig=rig, mwd=None, driver="",
-                        driver_kind=driver_kind, driver_category=driver_category, mitigations=mitigations or [],
-                        citations=[])
+    return adapter.Risk(code=code, scope=scope, section=section, formation=formation, rig=rig, mwd=None,
+                        driver="", driver_kind=driver_kind, driver_category=driver_category,
+                        mitigations=mitigations or [], citations=[])
 
 
 def test_same_code_noise_on_the_other_rig_does_not_disqualify_a_clean_well() -> None:
@@ -92,8 +94,8 @@ def test_same_code_noise_on_the_other_rig_does_not_disqualify_a_clean_well() -> 
 @pytest.mark.parametrize("category, passed", [("Vessra-3", True), ("Vessra-5", False), (None, False)])
 def test_a_rig_driver_must_blame_the_planted_rig(tmp_path: Path, category: str | None, passed: bool) -> None:
     ctx = _ctx(tmp_path, _vessra(), brief=adapter.Brief([_risk(driver_category=category)], True, []))
-    outcome = suites.check_brief_driver(Case("extended", "d", "brief-driver", True, None, {**BRIEF, "pattern": "G4"}),
-                                        ctx)
+    case = Case("extended", "d", "brief-driver", True, None, {**BRIEF, "pattern": "G4"})
+    outcome = suites.check_brief_driver(case, ctx)
     assert outcome.passed is passed, outcome.detail
 
 
@@ -122,8 +124,8 @@ def test_brief_precision_counts_split_risks_and_reports_the_patterns(tmp_path: P
     case = Case("brief-precision", "bp", "brief-precision", True, None, {**BRIEF, "min_precision": 0.75})
     outcome = suites.check_brief_precision(case, ctx)
     assert not outcome.passed
-    assert (outcome.metrics["planted"], outcome.metrics["listed"], outcome.metrics["patterns_covered"]) == (2, 3,
-                                                                                                           ["G4"])
+    metrics = outcome.metrics
+    assert (metrics["planted"], metrics["listed"], metrics["patterns_covered"]) == (2, 3, ["G4"])
 
 
 def test_classifier_metrics_and_practice_precision_target(tmp_path: Path) -> None:
@@ -165,19 +167,22 @@ def test_format_parity_needs_citations_to_verify(tmp_path: Path, monkeypatch: py
     assert not outcome.passed and "no citations" in outcome.detail
 
 
-def test_format_parity_counts_rows_filed_under_no_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_format_parity_counts_rows_filed_under_no_field(tmp_path: Path,
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
     base = [_row("DDR-VSS-201-001")]
-    rendered = Stub(ledger=base + [_row("DDR-VSS-201-001", None)],
-                    ask=adapter.AskResult("", [], [adapter.Cited("row-1", "VSS-201,2022-01-02,RIG_REPAIR,10.0")], {}))
+    cited = adapter.Cited("row-1", "VSS-201,2022-01-02,RIG_REPAIR,10.0")
+    rendered = Stub(ledger=[*base, _row("DDR-VSS-201-001", None)], ask=adapter.AskResult("", [], [cited], {}))
     outcome = _parity(tmp_path, monkeypatch, "csv", rendered, base)
     assert not outcome.passed and "no field: 0 of 0" in outcome.detail
 
 
-@pytest.mark.parametrize("quote, passed", [("VSS-201,2022-01-02,RIG_REPAIR,10.0", True), ("RIG_REPAIR,10.0", False)])
+@pytest.mark.parametrize("quote, passed", [("VSS-201,2022-01-02,RIG_REPAIR,10.0", True),
+                                            ("RIG_REPAIR,10.0", False)])
 def test_a_csv_quote_is_a_whole_ledger_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quote: str,
                                            passed: bool) -> None:
     base = [_row("DDR-VSS-201-001")]
-    rendered = Stub(ledger=[_row("row-1")], ask=adapter.AskResult("", [], [adapter.Cited("row-1", quote)], {}))
+    rendered = Stub(ledger=[_row("row-1")],
+                    ask=adapter.AskResult("", [], [adapter.Cited("row-1", quote)], {}))
     assert _parity(tmp_path, monkeypatch, "csv", rendered, base).passed is passed
 
 

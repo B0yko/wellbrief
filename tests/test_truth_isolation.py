@@ -102,9 +102,13 @@ def _product_imports(tree: ast.AST) -> list[str]:
 
 
 def test_only_the_adapter_calls_the_product() -> None:
-    """Gold answers never go through product code: every other evaluation module stays inside the package."""
+    """Gold answers never go through product code.
+
+    Every evaluation module other than the adapter stays inside the package.
+    """
     offenders = {p.name: hits for p in sorted(EVALS_PACKAGE.rglob("*.py"))
-                 if p.name != "adapter.py" and (hits := _product_imports(ast.parse(p.read_text(encoding="utf-8"))))}
+                 if p.name != "adapter.py"
+                 and (hits := _product_imports(ast.parse(p.read_text(encoding="utf-8"))))}
     assert offenders == {}
     assert _product_imports(ast.parse((EVALS_PACKAGE / "adapter.py").read_text(encoding="utf-8")))
 
@@ -121,7 +125,10 @@ def test_the_static_check_catches_ways_of_naming_the_sidecar(snippet: str) -> No
 
 
 def test_the_corpus_package_only_writes_the_sidecar() -> None:
-    """No module of the generator parses JSON or reads a file back as text (the manifest only hashes bytes)."""
+    """No module of the generator parses JSON or reads a file back as text.
+
+    The manifest only hashes bytes.
+    """
     for path in sorted(CORPUS_PACKAGE.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -145,7 +152,8 @@ def test_ingestion_never_reads_underscore_files(tmp_path: Path) -> None:
     assert (tmp_path / SIDECAR).exists()
 
 
-@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs file permissions that bind the user")
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0,
+                    reason="needs file permissions that bind the user")
 def test_ingestion_works_when_the_sidecar_cannot_be_read(tmp_path: Path) -> None:
     written = write_corpus(build_corpus(), tmp_path)
     sidecar = tmp_path / SIDECAR

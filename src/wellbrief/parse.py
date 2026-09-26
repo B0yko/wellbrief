@@ -236,7 +236,8 @@ def parse_incident(text: str) -> dict[str, Any]:
     m = re.search(r"Classification:\s*([A-Z_]+)\s+Lost time:\s*([\d.]+)", text, re.I)
     if m:
         out["code"], out["hours"] = m.group(1), float(m.group(2))
-    m = re.search(r"Depth:\s*([\d,]+)\s*m MD\s+Hole section:\s*(\S+(?:\s+\d/\d\")?)\s+Formation:\s*(.+)", text)
+    m = re.search(r"Depth:\s*([\d,]+)\s*m MD\s+"
+                  r"Hole section:\s*(\S+(?:\s+\d/\d\")?)\s+Formation:\s*(.+)", text)
     if m:
         out["depth_m"] = _num(m.group(1))
         out["hole_section"] = canonical_section(m.group(2))

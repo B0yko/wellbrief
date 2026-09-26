@@ -52,9 +52,9 @@ def _emit(payload, as_json: bool, text: str = "") -> None:
 
 def cmd_build(args) -> int:
     store = Store(args.db)
-    stats = ingest_mod.bootstrap(store)
+    ingest_mod.bootstrap(store)
     counts = store.counts()
-    print(f"Generated and indexed the demo field history.")
+    print("Generated and indexed the demo field history.")
     print(f"  wells      : {counts['wells']}")
     print(f"  documents  : {counts['documents']}")
     print(f"  NPT events : {counts['npt_events']}")
@@ -180,7 +180,8 @@ def cmd_patterns(args) -> int:
         for p in patterns:
             print(f"{p.code} / {p.hole_section} / {p.formation}")
             print(f"  {p.wells_affected}/{p.wells_total} wells ({p.probability * 100:.0f} %), "
-                  f"{p.hours_total:,.1f} h total, mean {p.mean_hours_per_affected_well:.1f} h per affected well")
+                  f"{p.hours_total:,.1f} h total, "
+                  f"mean {p.mean_hours_per_affected_well:.1f} h per affected well")
             if p.driver:
                 print(f"  driver: {p.driver}")
             print()
@@ -198,7 +199,8 @@ def cmd_digest(args) -> int:
         print(f"NPT since {payload['since']}: {s['npt_hours']:,.1f} h across {s['wells']} wells, "
               f"${s['npt_cost_usd']:,.0f}, {s['avoidable_share'] * 100:.0f} % avoidable")
         for e in payload["biggest_events"]:
-            print(f"  {e['date']}  {e['well']:<10}{e['code']:<24}{e['hours']:>6.1f} h  {e['description'][:70]}")
+            print(f"  {e['date']}  {e['well']:<10}{e['code']:<24}{e['hours']:>6.1f} h  "
+                  f"{e['description'][:70]}")
     store.close()
     return 0
 
@@ -333,7 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", type=Path, help="write the results as JSON to this file")
     sp.add_argument("--no-risk-filters", action="store_true",
                     help="brief precision cases: build the briefs without the risk filters (min_lift 0, "
-                         "unavoidable codes included) and report them without a score; other briefs keep them")
+                         "unavoidable codes included) and report them without a score; "
+                         "other briefs keep them")
     sp.add_argument("--ablation", action="store_true", help="retrieval ablation (not supported yet)")
     sp.add_argument("--narrator", choices=["offline", "llm"], default="offline",
                     help="narrator for answers and briefs (only offline is supported yet)")
@@ -342,11 +345,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("corpus", help="synthetic well-file corpus")
     corpus_sub = sp.add_subparsers(dest="corpus_command", required=True)
-    gp = corpus_sub.add_parser("generate", help="write the synthetic corpus and its ground truth to a directory")
+    gp = corpus_sub.add_parser("generate",
+                               help="write the synthetic corpus and its ground truth to a directory")
     gp.add_argument("--out", type=Path, required=True, help="output directory (empty, or a previous corpus)")
     gp.add_argument("--seed", type=int, default=SEED, help=f"random seed (default {SEED})")
     gp.add_argument("--scale", type=int, default=1,
-                    help=f"multiply the number of wells per field, 1 to {MAX_SCALE} (default 1: 28 + 14 wells)")
+                    help=f"multiply the number of wells per field, 1 to {MAX_SCALE} "
+                         "(default 1: 28 + 14 wells)")
     gp.set_defaults(func=cmd_corpus_generate)
     return p
 

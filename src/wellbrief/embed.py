@@ -80,7 +80,7 @@ def cosine(a: list[float], b: list[float]) -> float:
     """Both sides are already L2 normalised, so this is a dot product."""
     if not a or not b or len(a) != len(b):
         return 0.0
-    return sum(x * y for x, y in zip(a, b))
+    return sum(x * y for x, y in zip(a, b, strict=True))
 
 
 def get_embedder(backend: str = "offline") -> Embedder:

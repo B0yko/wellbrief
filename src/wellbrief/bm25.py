@@ -36,7 +36,7 @@ class BM25Index:
         self.avgdl = (sum(self.doc_len) / len(self.doc_len)) if self.doc_len else 0.0
 
     @classmethod
-    def build(cls, items: list[tuple[str, str]]) -> "BM25Index":
+    def build(cls, items: list[tuple[str, str]]) -> BM25Index:
         idx = cls()
         for doc_id, text in items:
             idx.add(doc_id, text)
@@ -91,7 +91,7 @@ class BM25Index:
         }
 
     @classmethod
-    def from_json(cls, blob: dict) -> "BM25Index":
+    def from_json(cls, blob: dict) -> BM25Index:
         idx = cls(k1=blob.get("k1", BM25_K1), b=blob.get("b", BM25_B))
         idx.doc_ids = list(blob["doc_ids"])
         idx.doc_len = list(blob["doc_len"])

@@ -133,7 +133,7 @@ def _stats_for(store: Store, plan: QueryPlan, spread_rate: float) -> tuple[dict[
         "avoidable_share": roll["avoidable_share"],
         "by_code": roll["by_code"][:5],
         "worst_wells": roll["worst_wells"][:5],
-        "filters_applied": {k: v for k, v in filters.items()},
+        "filters_applied": dict(filters),
     }
     return stats, events
 

@@ -63,11 +63,13 @@ CATEGORIES: dict[str, tuple[set[str], set[str]]] = {
 
 # The suites each category may appear in.
 CATEGORY_SUITES: dict[str, tuple[str, ...]] = {
-    **{c: ("original",) for c in ("retrieval", "grounding", "discovery", "brief-citations", "brief-mitigations")},
+    **dict.fromkeys(("retrieval", "grounding", "discovery", "brief-citations", "brief-mitigations"),
+                    ("original",)),
     "arithmetic": ("original", "extended"),
-    **{c: ("extended",) for c in ("retrieval-precision", "abstention", "brief-recall", "brief-driver",
-                                  "mitigation-precision", "mitigation-recall", "parser-fidelity", "format-parity")},
-    **{c: ("brief-precision",) for c in ("brief-precision", "classifier-accuracy")},
+    **dict.fromkeys(("retrieval-precision", "abstention", "brief-recall", "brief-driver",
+                     "mitigation-precision", "mitigation-recall", "parser-fidelity", "format-parity"),
+                    ("extended",)),
+    **dict.fromkeys(("brief-precision", "classifier-accuracy"), ("brief-precision",)),
 }
 
 _COMMON = {"id", "category", "gate", "reason"}
@@ -164,7 +166,8 @@ def parse_suite(data: dict[str, Any], name: str, where: str) -> list[Case]:
     for c in cases:
         for ref in c.get("from_cases", []):
             if by_id.get(ref) is None or by_id[ref].category != "retrieval":
-                raise CaseError(f"{where} ({c.id}): from_cases names {ref!r}, not a retrieval case of this file")
+                raise CaseError(f"{where} ({c.id}): from_cases names {ref!r}, "
+                                "not a retrieval case of this file")
     return cases
 
 

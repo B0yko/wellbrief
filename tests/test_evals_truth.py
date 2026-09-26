@@ -40,7 +40,8 @@ def test_every_record_becomes_one_row(db: truth.Truth, sidecar: dict[str, Any]) 
     assert db.scalar("SELECT COUNT(*) FROM truth_patterns") == keys
 
 
-def test_event_fields_survive_including_the_parts_of_long_events(db: truth.Truth, sidecar: dict[str, Any]) -> None:
+def test_event_fields_survive_including_the_parts_of_long_events(db: truth.Truth,
+                                                                  sidecar: dict[str, Any]) -> None:
     long_event = next(e for e in sidecar["npt_events"] if e["parts"] > 1)
     row = db.rows("SELECT * FROM truth_events WHERE event_id = ?", (long_event["event_id"],))[0]
     for key in ("doc_id", "well", "field", "date", "code", "hours", "depth_m", "section", "formation", "rig",
@@ -70,8 +71,8 @@ def test_documents_wells_sentences_and_patterns(db: truth.Truth, sidecar: dict[s
                                                                  sentence["patterns"])
 
     g3 = db.rows("SELECT * FROM truth_patterns WHERE id = 'G3' AND field = 'Orrindale'")[0]
-    assert (g3["code"], g3["mwd"], g3["section"], g3["driver"]) == ("DOWNHOLE_TOOL_FAILURE", "PJ-3", '12 1/4"',
-                                                                    "tool")
+    assert (g3["code"], g3["mwd"], g3["section"], g3["driver"]) == (
+        "DOWNHOLE_TOOL_FAILURE", "PJ-3", '12 1/4"', "tool")
 
 
 def test_json_lists_can_be_queried(db: truth.Truth) -> None:
@@ -111,8 +112,9 @@ def _broken(sidecar: dict[str, Any], table: str, index: int, change: dict[str, A
     ("wells", {"patterns": {"G1": "affectd"}}, None, "pattern status"),
     ("documents", {"type": "memo"}, None, "unknown type"),
 ])
-def test_a_record_of_the_wrong_shape_is_a_truth_error(sidecar: dict[str, Any], table: str, change: dict[str, Any],
-                                                      drop: str | None, message: str) -> None:
+def test_a_record_of_the_wrong_shape_is_a_truth_error(sidecar: dict[str, Any], table: str,
+                                                      change: dict[str, Any], drop: str | None,
+                                                      message: str) -> None:
     with pytest.raises(truth.TruthError, match=message):
         truth.load(_broken(sidecar, table, 0, change, drop))
 

@@ -30,7 +30,7 @@ STOPWORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "with",
     "from", "by", "as", "is", "are", "was", "were", "be", "been", "it", "its",
     "this", "that", "these", "those", "we", "our", "no", "not", "but", "if",
-    "then", "than", "so", "up", "out", "into", "over", "per", "was", "had",
+    "then", "than", "so", "up", "out", "into", "over", "per", "had",
     "has", "have", "will", "would", "can", "could", "hrs", "hr", "h",
 }
 
@@ -40,7 +40,7 @@ def normalise(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     for frac, repl in _FRACTIONS.items():
         text = text.replace(frac, repl)
-    text = text.replace("–", "-").replace("—", "-").replace("’", "'")
+    text = text.replace("\u2013", "-").replace("\u2014", "-").replace("\u2019", "'")
     return text
 
 

@@ -73,7 +73,8 @@ def test_git_dirty_flag_ignores_untracked_results_only(tmp_path: Path) -> None:
     (repo / "src" / "wellbrief" / "mod.py").write_text("x = 1\n", encoding="utf-8")
     _git(repo, "init", "-q")
     _git(repo, "add", ".")
-    _git(repo, "-c", "user.name=test", "-c", "user.email=", "-c", "commit.gpgsign=false", "commit", "-qm", "init")
+    _git(repo, "-c", "user.name=test", "-c", "user.email=", "-c", "commit.gpgsign=false",
+         "commit", "-qm", "init")
     assert results.git_state(repo)["dirty"] is False
 
     # a first result file, untracked, does not make the next run dirty
@@ -99,7 +100,8 @@ def test_git_state_of_this_checkout() -> None:
 def test_written_results_carry_no_absolute_paths(tmp_path: Path) -> None:
     home, tmp = str(Path.home()), tempfile.gettempdir()
     report = {
-        "metadata": results.metadata(["eval", "--out", str(tmp_path / "r.json")], ["extended"], [1], {}, "0.1.0"),
+        "metadata": results.metadata(["eval", "--out", str(tmp_path / "r.json")], ["extended"], [1], {},
+                                     "0.1.0"),
         "results": [
             {"detail": f"error: OSError: cannot read {tmp}/wellbrief-eval-x/corpus/_truth.json"},
             {"detail": f"error: FileNotFoundError: {home}/Documents/somewhere/file.txt"},

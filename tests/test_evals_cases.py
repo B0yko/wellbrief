@@ -66,7 +66,8 @@ def test_targets_may_be_written_as_integers() -> None:
 
 
 def test_retrieval_precision_is_always_cut_at_8() -> None:
-    case = {"id": "r", "category": "retrieval-precision", "question": "q", "field": "F", "relevant_sql": "SELECT 1"}
+    case = {"id": "r", "category": "retrieval-precision", "question": "q", "field": "F",
+            "relevant_sql": "SELECT 1"}
     parse_suite(_suite(case), "extended", "t")
     with pytest.raises(CaseError, match="unknown key"):
         parse_suite(_suite({**case, "top_k": 5}), "extended", "t")
@@ -106,7 +107,7 @@ def test_file_level_errors() -> None:
 
 def test_load_suite_reports_the_file(tmp_path: Path) -> None:
     (tmp_path / "extended.toml").write_text('suite = "extended"\n[[case]]\nid = "x"\n', encoding="utf-8")
-    with pytest.raises(CaseError, match="extended.toml"):
+    with pytest.raises(CaseError, match=r"extended\.toml"):
         load_suite(tmp_path, "extended")
     with pytest.raises(CaseError, match="unknown suite"):
         load_suite(tmp_path, "nightly")

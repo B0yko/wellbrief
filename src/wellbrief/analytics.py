@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field as dc_field
-from typing import Any, Iterable
+from typing import Any
 
 from .config import (
     AVOIDABLE_CODES,
@@ -39,7 +40,8 @@ def percentile(values: list[float], p: float) -> float:
     return ordered[lo] * (1 - frac) + ordered[hi] * frac
 
 
-def rollup(events: Iterable[NptEvent], spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_DAY) -> dict[str, Any]:
+def rollup(events: Iterable[NptEvent],
+           spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_DAY) -> dict[str, Any]:
     events = list(events)
     total = sum(e.hours for e in events)
     avoidable = sum(e.hours for e in events if e.code in AVOIDABLE_CODES)
@@ -248,7 +250,8 @@ def explain_driver(store: Store, pattern: Pattern) -> tuple[str, dict[str, Any]]
     return "", {}
 
 
-def _categorical_rate(store: Store, pattern: Pattern, getter, label: str) -> tuple[str, dict[str, Any]] | None:
+def _categorical_rate(store: Store, pattern: Pattern, getter,
+                      label: str) -> tuple[str, dict[str, Any]] | None:
     """Report a category whose hit rate is at least twice the rest."""
     well_cat: dict[str, str] = {}
     for d in store.documents(field_name=pattern.field_name, doc_type="ddr"):

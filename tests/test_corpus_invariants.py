@@ -23,11 +23,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from corpus_files import DEPTH_QUOTE, DURATION_QUOTE, Ddr, ParsedCorpus, depth_value, ledger
 
+from corpus_files import DEPTH_QUOTE, DURATION_QUOTE, Ddr, ParsedCorpus, depth_value, ledger
 from wellbrief.config import SYNTHETIC_FOOTER
-from wellbrief.corpus import SEED, OutputDirError, build_corpus, manifest_hash, write_corpus
-from wellbrief.corpus import generator as generator_module
+from wellbrief.corpus import (
+    SEED,
+    OutputDirError,
+    build_corpus,
+    generator as generator_module,
+    manifest_hash,
+    write_corpus,
+)
 from wellbrief.corpus.events import CORRECTIVE_ACTIONS
 from wellbrief.corpus.writeup import RECOMMENDATIONS
 
@@ -108,7 +114,8 @@ def _facts(pc: ParsedCorpus, well: str) -> dict[str, Any]:
         "stuck": [e for _, e in entries if e["code"] == "STUCK_PIPE"],
         "fishing": [e for _, e in entries if e["code"] == "FISHING"],
         "total_losses": [e for _, e in entries if e["description"].startswith("Total losses on entering")],
-        "total_loss_reports": [d for d, e in entries if e["description"].startswith("Total losses on entering")],
+        "total_loss_reports": [d for d, e in entries
+                               if e["description"].startswith("Total losses on entering")],
         "losses": [e for _, e in entries if e["code"] == "LOST_CIRCULATION"],
         "partial_reports": {d.doc_id for d, e in entries
                             if e["code"] == "LOST_CIRCULATION" and "artial losses" in e["description"]},
@@ -124,11 +131,12 @@ def _facts(pc: ParsedCorpus, well: str) -> dict[str, Any]:
         "cement": starts("CEMENT_ISSUE"),
         "mwd": {d.mwd for d in ddrs},
         "mwd_12": {d.mwd for d in ddrs if d.section == MWD_SECTION},
-        "bht_12": max((int(d.labels["Static BHT estimate"].split()[0]) for d in ddrs if d.section == MWD_SECTION),
-                      default=0),
+        "bht_12": max((int(d.labels["Static BHT estimate"].split()[0])
+                       for d in ddrs if d.section == MWD_SECTION), default=0),
         "rig": {d.rig for d in ddrs},
         "salt_mw": {d.mud_weight for d in ddrs if d.section == SALT_SECTION and d.formation_at_td == SALT},
-        "brine_sweeps": [depth_value(m) for m in re.findall(r"Pumped a saturated brine sweep at ([\d,]+ m)", ops)],
+        "brine_sweeps": [depth_value(m)
+                         for m in re.findall(r"Pumped a saturated brine sweep at ([\d,]+ m)", ops)],
         "lcm_pill": "Spotted a 30 bbl fibrous LCM pill" in ops,
         "pump_inspection": "changed the fluid ends before spud" in ops,
         "seepage": any("Seepage losses" in r for d in ddrs for r in d.remarks),
@@ -205,7 +213,8 @@ def test_every_npt_entry_carries_its_own_depth_and_formation(corpus: ParsedCorpu
     entries = 0
     for d in corpus.ddrs:
         labels = Counter(d.raw_npt_labels)
-        assert labels["Code"] == labels["Depth"] == labels["Formation"] == labels["Description"] == len(d.entries)
+        assert (labels["Code"] == labels["Depth"] == labels["Formation"] == labels["Description"]
+                == len(d.entries))
         for e in d.entries:
             entries += 1
             assert e["depth_m"] is not None and e["formation"], d.doc_id
@@ -343,7 +352,8 @@ def test_trips_run_at_a_realistic_speed(corpus: ParsedCorpus) -> None:
 
 
 def test_no_lost_time_is_booked_as_productive(corpus: ParsedCorpus) -> None:
-    drilling_only = re.compile(r"^(Drilled |Circulated bottoms up and took a survey|Pumped a saturated brine sweep)")
+    drilling_only = re.compile(
+        r"^(Drilled |Circulated bottoms up and took a survey|Pumped a saturated brine sweep)")
     for d in corpus.ddrs:
         for o in d.ops:
             if not o.npt and o.text.startswith("Circulated"):
@@ -457,11 +467,14 @@ def test_each_section_opens_with_a_shoe_drill_out_and_a_fit_and_casing_waits_on_
         sections = corpus.field_spec(field_name)["sections"]
         for prev in sections[:-1]:
             shoe = prev["base_m"]
-            assert any(t.startswith("Drilled out the float collar") and f"shoe at {shoe:,} m" in t for t in texts)
-            assert any(re.fullmatch(rf"Performed a FIT to \d\.\d\d sg EMW at {shoe + 3:,} m\.", t) for t in texts)
+            assert any(t.startswith("Drilled out the float collar") and f"shoe at {shoe:,} m" in t
+                       for t in texts)
+            assert any(re.fullmatch(rf"Performed a FIT to \d\.\d\d sg EMW at {shoe + 3:,} m\.", t)
+                       for t in texts)
         waits: list[int] = []
         for prev, o in pairwise([None, *ops]):
-            if o.text == "Displaced the cement and bumped the plug." and (prev is None or prev.text != o.text):
+            if (o.text == "Displaced the cement and bumped the plug."
+                    and (prev is None or prev.text != o.text)):
                 waits.append(0)
             elif o.text == "Waited on cement.":
                 waits[-1] += o.minutes
@@ -518,7 +531,8 @@ def test_only_a_repeat_pump_repair_is_called_one(corpus: ParsedCorpus) -> None:
     for well in corpus.eowrs:
         starts = _facts(corpus, well)["pump_repairs"]
         repairs += len(starts)
-        assert ["Repeat failure" in e["description"] for e in starts] == [n > 0 for n in range(len(starts))], well
+        repeats = ["Repeat failure" in e["description"] for e in starts]
+        assert repeats == [n > 0 for n in range(len(starts))], well
     assert repairs > 0
 
 
@@ -530,7 +544,8 @@ def test_a_pack_off_followed_by_fishing_is_never_worked_free(corpus: ParsedCorpu
     fished = 0
     for well in corpus.eowrs:
         f = _facts(corpus, well)
-        freed = [e for e in f["stuck"] if "jarred free" in e["description"] or "circulated free" in e["description"]]
+        freed = [e for e in f["stuck"]
+                 if "jarred free" in e["description"] or "circulated free" in e["description"]]
         if f["fishing"]:
             fished += 1
             assert not freed, well
@@ -561,8 +576,8 @@ def test_eowr_failure_lessons_match_the_daily_reports(corpus: ParsedCorpus) -> N
         f = _facts(corpus, well)
         lessons = " ".join(eowr.lessons)
         # G1: pack-off depth, fishing, creep reports, salt mud weight.
-        m = re.search(r"the string packed off at ([\d,]+) m on the trip out for the 13 3/8\" intermediate casing",
-                      lessons)
+        m = re.search(r"the string packed off at ([\d,]+) m on the trip out "
+                      r"for the 13 3/8\" intermediate casing", lessons)
         assert bool(m) == bool(f["packoff"]), well
         if m:
             assert _num(m.group(1)) == f["packoff"][0]["depth_m"], well
@@ -586,12 +601,14 @@ def test_eowr_failure_lessons_match_the_daily_reports(corpus: ParsedCorpus) -> N
         if m:
             assert _count(m.group(1)) == len(f["partial_reports"]), well
         # G3: failure count and temperature, or the temperature reached without a failure.
-        m = re.search(r"PJ-3 MWD failed (once|twice|\d+ times) in the 12 1/4\" section, at BHT up to (\d+) C", lessons)
+        m = re.search(r"PJ-3 MWD failed (once|twice|\d+ times) in the 12 1/4\" section, "
+                      r"at BHT up to (\d+) C", lessons)
         assert bool(m) == bool(f["mwd_failures"]), well
         if m:
             assert _count(m.group(1)) == len(f["mwd_failures"]), well
             assert int(m.group(2)) == max(f["mwd_bht"]), well
-        m = re.search(r"PJ-3 directional tools were run in the 12 1/4\" section, where BHT reached (\d+) C", lessons)
+        m = re.search(r"PJ-3 directional tools were run in the 12 1/4\" section, "
+                      r"where BHT reached (\d+) C", lessons)
         if m:
             assert not f["mwd_failures"] and f["mwd_12"] == {"Parvane Downhole PJ-3"}, well
             assert int(m.group(1)) == f["bht_12"], well
@@ -602,7 +619,8 @@ def test_eowr_failure_lessons_match_the_daily_reports(corpus: ParsedCorpus) -> N
             assert _count(m.group(1)) == len(f["pump_repairs"]), well
             assert float(m.group(2)) == f["pump_hours"], well
         # Cementing: the casing strings named are the ones with a cement head leak.
-        m = re.search(r"The cement head seal leaked during the cement jobs? on (.*) and was replaced", lessons)
+        m = re.search(r"The cement head seal leaked during the cement jobs? on (.*) and was replaced",
+                      lessons)
         assert bool(m) == bool(f["cement"]), well
         if m:
             named = set(re.findall(r"the (\d[^,]*?(?:casing|liner))", m.group(1)))
@@ -626,7 +644,8 @@ def test_eowr_practice_lessons_come_only_from_wells_that_followed_the_practice(c
                 sweeps = sorted(f["brine_sweeps"])
                 assert all(b - a <= 250 for a, b in pairwise(sweeps)), well
                 if "uneventful" in lesson:
-                    assert f["casing_trip_reports"] and not any(d.entries for d in f["casing_trip_reports"]), well
+                    trip_reports = f["casing_trip_reports"]
+                    assert trip_reports and not any(d.entries for d in trip_reports), well
             elif p == "G2":
                 assert f["lcm_pill"] and f["seepage"], well
             elif p == "G3":
@@ -792,7 +811,8 @@ def _label(kind: str, text: str) -> str:
     if kind == "recommendation":
         return "practice"
     if kind == "corrective_action":
-        neutral = ("outside the crew's control", "recorded against the service contract", "was made correctly")
+        neutral = ("outside the crew's control", "recorded against the service contract",
+                   "was made correctly")
         return "neutral" if any(m in text for m in neutral) else "practice"
     failure = ("packed off", "tight hole", "failed", "Total losses were taken", "seal leaked")
     practice = ("hole held gauge", "Only seepage losses", "no MWD failures", "no pump NPT")
@@ -824,13 +844,14 @@ def test_parsed_ledger_equals_the_true_npt_events(corpus: ParsedCorpus) -> None:
         mwd = corpus.ddr(doc_id).mwd.split()[-1]
         got += [(f"{doc_id}#{n}", r.code, r.hours, r.depth_m, r.formation, r.hole_section, r.date, r.rig, mwd,
                  r.well, r.field_name) for n, r in enumerate(rows, start=1)]
-    want = [(e["event_id"], e["code"], e["hours"], float(e["depth_m"]), e["formation"], e["section"], e["date"],
-             e["rig"], e["mwd"], e["well"], e["field"]) for e in corpus.truth["npt_events"]]
+    want = [(e["event_id"], e["code"], e["hours"], float(e["depth_m"]), e["formation"], e["section"],
+             e["date"], e["rig"], e["mwd"], e["well"], e["field"]) for e in corpus.truth["npt_events"]]
     assert sorted(got) == sorted(want)
 
 
 def _text_pattern(d: Ddr, e: dict[str, Any]) -> str | None:
-    if d.field_name == "Orrindale" and e["code"] in G1_CODES and d.section == SALT_SECTION and e["formation"] == SALT:
+    if (d.field_name == "Orrindale" and e["code"] in G1_CODES and d.section == SALT_SECTION
+            and e["formation"] == SALT):
         return "G1"
     if d.field_name == "Vessra South" and e["code"] == "LOST_CIRCULATION":
         return "G2"
@@ -856,7 +877,8 @@ def test_truth_patterns_match_what_the_daily_reports_show(corpus: ParsedCorpus) 
         exposed = {
             "G1": w["field"] == "Orrindale" and any(d.section == SALT_SECTION and d.formation_at_td == SALT
                                                     for d in ddrs),
-            "G2": w["field"] == "Vessra South" and any(d.section == '8 1/2"' and d.depth_end >= carbonate["top_m"]
+            "G2": w["field"] == "Vessra South" and any(d.section == '8 1/2"'
+                                                       and d.depth_end >= carbonate["top_m"]
                                                        for d in ddrs),
             "G3": any(d.section == MWD_SECTION and int(d.labels["Static BHT estimate"].split()[0]) > 118
                       for d in ddrs),
@@ -899,7 +921,8 @@ def test_truth_wells_match_the_daily_reports(corpus: ParsedCorpus) -> None:
         assert {w["rig"]} == f["rig"], w["well"]
         assert w["mwd_by_section"] == {d.section: d.mwd.split()[-1] for d in ddrs}, w["well"]
         assert {f"Parvane Downhole {w['mwd']}"} == f["mwd_12"], w["well"]
-        assert (w["spud"], w["release"], w["eowr_date"]) == (ddrs[0].date, ddrs[-1].date, eowr.date), w["well"]
+        dates = (ddrs[0].date, ddrs[-1].date, eowr.date)
+        assert (w["spud"], w["release"], w["eowr_date"]) == dates, w["well"]
         assert (w["td_m"], w["days_on_well"]) == (eowr.td, len(ddrs)), w["well"]
         assert {w["salt_mw_sg"]} == f["salt_mw"], w["well"]
         if w["field"] == "Orrindale":
@@ -960,7 +983,8 @@ def test_manifest_hash_does_not_depend_on_the_process(tmp_path: Path) -> None:
     for hash_seed in ("1", "2"):
         env = {**os.environ, "PYTHONHASHSEED": hash_seed}
         out = subprocess.run(
-            [sys.executable, "-m", "wellbrief", "--json", "corpus", "generate", "--out", str(tmp_path / hash_seed)],
+            [sys.executable, "-m", "wellbrief", "--json", "corpus", "generate",
+             "--out", str(tmp_path / hash_seed)],
             check=True, capture_output=True, text=True, env=env, cwd=tmp_path,
         )
         hashes.append(json.loads(out.stdout)["manifest_hash"])

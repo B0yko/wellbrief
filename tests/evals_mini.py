@@ -21,9 +21,9 @@ def field(name: str, prefix: str, rigs: list[str], tools: list[str], patterns: l
 
 
 def well(name: str, field_name: str, rig: str, mwd: str = "PJ-3", **statuses: str) -> dict[str, Any]:
-    return {"well": name, "field": field_name, "rig": rig, "mwd": mwd, "mwd_by_section": {}, "spud": "2022-01-01",
-            "release": "2022-02-01", "td_m": 3000, "eowr_date": "2022-02-10", "days_on_well": 31,
-            "salt_mw_sg": None, "salt_mw_ok": None, "lcm_pretreat": None, "cites": {},
+    return {"well": name, "field": field_name, "rig": rig, "mwd": mwd, "mwd_by_section": {},
+            "spud": "2022-01-01", "release": "2022-02-01", "td_m": 3000, "eowr_date": "2022-02-10",
+            "days_on_well": 31, "salt_mw_sg": None, "salt_mw_ok": None, "lcm_pretreat": None, "cites": {},
             "patterns": {**STATUSES, **statuses}}
 
 

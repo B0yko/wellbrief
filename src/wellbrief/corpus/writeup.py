@@ -27,7 +27,9 @@ from .fields import (
 from .records import Incident, NptEvent, Sentence, WellRecord, fmt_m
 
 PATTERNS = ("G1", "G2", "G3", "G4")
-PATTERN_CODE = {"G1": "STUCK_PIPE", "G2": "LOST_CIRCULATION", "G3": "DOWNHOLE_TOOL_FAILURE", "G4": "RIG_REPAIR"}
+PATTERN_CODE = {
+    "G1": "STUCK_PIPE", "G2": "LOST_CIRCULATION", "G3": "DOWNHOLE_TOOL_FAILURE", "G4": "RIG_REPAIR",
+}
 
 RECOMMENDATIONS = {
     "G1": "Hold at least 1.42 sg across Keldra Salt and sweep with saturated brine every 250 m.",
@@ -40,7 +42,8 @@ RECOMMENDATIONS = {
 
 FIELD_RECOMMENDATION = {
     "Orrindale": "Run a caliper on the intermediate section before running casing.",
-    "Vessra South": "Confirm the intermediate casing seat against the offset formation tops before running casing.",
+    "Vessra South": ("Confirm the intermediate casing seat against the offset formation tops "
+                     "before running casing."),
 }
 
 INCIDENT_MIN_TENTHS = 160
@@ -191,7 +194,8 @@ def _mwd_lesson(w: WellRecord, cite: str) -> Sentence:
         return Sentence("lesson", text + cite, "practice", ("G3",), "DOWNHOLE_TOOL_FAILURE")
     bht = max(d.bht_c for d in w.days if d.section.size == G3_SECTION)
     return Sentence(
-        "lesson", f"{MWD_VENDOR} PJ-3 directional tools were run in the 12 1/4\" section, where BHT reached {bht} C.",
+        "lesson",
+        f"{MWD_VENDOR} PJ-3 directional tools were run in the 12 1/4\" section, where BHT reached {bht} C.",
         "neutral", ("G3",), None)
 
 
@@ -201,8 +205,8 @@ def _pump_lesson(w: WellRecord, cite: str) -> Sentence:
         hours = sum(e.tenths for e in g4)
         return Sentence(
             "lesson",
-            f"The mud pump #2 fluid end on {G4_RIG} failed {_times(len(g4))} and was repaired on the critical "
-            f"path, {_hours(hours)} h in total.",
+            f"The mud pump #2 fluid end on {G4_RIG} failed {_times(len(g4))} "
+            f"and was repaired on the critical path, {_hours(hours)} h in total.",
             "failure", ("G4",), "RIG_REPAIR")
     if w.rig != G4_RIG:
         text = f"Mud pump fluid ends on {w.rig} were inspected and changed between wells; no pump NPT."
@@ -214,7 +218,8 @@ def _pump_lesson(w: WellRecord, cite: str) -> Sentence:
 def _cement_lesson(w: WellRecord) -> Sentence:
     jobs = [e.params["casing"] for e in w.events if e.variant == "cement"]
     if not jobs:
-        return Sentence("lesson", "Cement jobs went to programme with no notable deviation.", "neutral", (), None)
+        return Sentence("lesson", "Cement jobs went to programme with no notable deviation.",
+                        "neutral", (), None)
     names = list(dict.fromkeys(jobs))
     jobs_text = " and ".join(f"the {c}" for c in names)
     plural = "jobs" if len(names) > 1 else "job"

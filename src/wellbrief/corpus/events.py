@@ -220,7 +220,8 @@ CORRECTIVE_ACTIONS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     "FISHING": (
         ("Place the jars so that the string can be backed off above the stuck point in the salt.",
          "practice", ("G1",)),
-        ("Keep a fishing assembly for the 17 1/2\" BHA on location while drilling the salt.", "practice", ("G1",)),
+        ("Keep a fishing assembly for the 17 1/2\" BHA on location while drilling the salt.",
+         "practice", ("G1",)),
     ),
     "WELLBORE_INSTABILITY": (
         ("Weight up to at least 1.42 sg across Keldra Salt and ream tight spots before connections.",
@@ -237,7 +238,8 @@ CORRECTIVE_ACTIONS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
     ),
     "DOWNHOLE_TOOL_FAILURE": (
         ("Run MWD tools rated to at least 150 C where BHT exceeds 118 C.", "practice", ("G3",)),
-        ("Replace Parvane Downhole PJ-3 MWD modules with PJ-5 for the 12 1/4\" section.", "practice", ("G3",)),
+        ("Replace Parvane Downhole PJ-3 MWD modules with PJ-5 for the 12 1/4\" section.",
+         "practice", ("G3",)),
         ("Log circulating temperature at every connection below 2,300 m to track the MWD temperature.",
          "practice", ("G3",)),
     ),

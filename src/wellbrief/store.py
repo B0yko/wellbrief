@@ -11,8 +11,9 @@ from __future__ import annotations
 import array
 import json
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .bm25 import BM25Index
 from .config import DB_PATH, EMBED_BACKEND
@@ -223,7 +224,7 @@ class VectorIndex:
         self.backend = backend
 
     @classmethod
-    def build(cls, items: list[tuple[str, str]], embedder: Embedder) -> "VectorIndex":
+    def build(cls, items: list[tuple[str, str]], embedder: Embedder) -> VectorIndex:
         doc_ids = [d for d, _ in items]
         vectors = embedder.embed_many([t for _, t in items])
         dim = len(vectors[0]) if vectors else embedder.dim
@@ -242,7 +243,7 @@ class VectorIndex:
         )
 
     @classmethod
-    def load(cls, base: Path) -> "VectorIndex":
+    def load(cls, base: Path) -> VectorIndex:
         meta = json.loads(base.with_suffix(".vecmeta.json").read_text(encoding="utf-8"))
         dim = meta["dim"]
         flat = array.array("f")
@@ -251,12 +252,13 @@ class VectorIndex:
         vectors = [list(flat[i * dim:(i + 1) * dim]) for i in range(len(meta["doc_ids"]))]
         return cls(meta["doc_ids"], vectors, dim, meta["backend"])
 
-    def search(self, query_vec: list[float], top_k: int = 20, allowed: set[str] | None = None) -> list[tuple[str, float]]:
+    def search(self, query_vec: list[float], top_k: int = 20,
+               allowed: set[str] | None = None) -> list[tuple[str, float]]:
         scored: list[tuple[str, float]] = []
-        for doc_id, vec in zip(self.doc_ids, self.vectors):
+        for doc_id, vec in zip(self.doc_ids, self.vectors, strict=True):
             if allowed is not None and doc_id not in allowed:
                 continue
-            scored.append((doc_id, sum(a * b for a, b in zip(query_vec, vec))))
+            scored.append((doc_id, sum(a * b for a, b in zip(query_vec, vec, strict=False))))
         scored.sort(key=lambda kv: (-kv[1], kv[0]))
         return [(d, round(s, 6)) for d, s in scored[:top_k]]
 

@@ -134,7 +134,8 @@ def build_corpus(seed: int = SEED, scale: int = 1) -> Corpus:
             start = w.report(inc.reports[0])
             documents.append(RenderedDocument(
                 doc_id=inc.doc_id, doc_type="incident", well=w.name, field_name=w.spec.name,
-                date=start.day.isoformat(), title=f"Incident report {inc.number} - {w.name} - {inc.event.code}",
+                date=start.day.isoformat(),
+                title=f"Incident report {inc.number} - {w.name} - {inc.event.code}",
                 lines=render_incident(w, inc),
             ))
     return Corpus(seed=seed, scale=scale, fields=FIELDS, rigs=rigs, wells=wells, documents=documents)

@@ -65,7 +65,8 @@ class Context:
                 raise
         return self._workspace
 
-    def ask(self, question: str, top_k: int = RETRIEVAL_K, spread_rate: float | None = None) -> adapter.AskResult:
+    def ask(self, question: str, top_k: int = RETRIEVAL_K,
+            spread_rate: float | None = None) -> adapter.AskResult:
         key = (question, top_k, spread_rate)
         if key not in self._asks:
             self._asks[key] = self.workspace.ask(question, top_k=top_k, spread_rate=spread_rate)
@@ -82,7 +83,8 @@ class Context:
         filters = self.filters_for(case)
         key = (case["field"], case["well"], float(case["td_m"]), filters)
         if key not in self._briefs:
-            self._briefs[key] = self.workspace.brief(case["field"], case["well"], float(case["td_m"]), filters)
+            self._briefs[key] = self.workspace.brief(case["field"], case["well"], float(case["td_m"]),
+                                                     filters)
         return self._briefs[key]
 
     def source_text(self, doc_id: str) -> str | None:
@@ -107,8 +109,8 @@ def _fail(detail: str, **metrics: Any) -> Outcome:
 
 def _outcome(problems: Sequence[str], ok_detail: str = "ok", **metrics: Any) -> Outcome:
     if problems:
-        return Outcome(False, "; ".join(problems[:3]) + (f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""),
-                       metrics)
+        more = f" (+{len(problems) - 3} more)" if len(problems) > 3 else ""
+        return Outcome(False, "; ".join(problems[:3]) + more, metrics)
     return Outcome(True, ok_detail, metrics)
 
 
@@ -117,7 +119,10 @@ def _outcome(problems: Sequence[str], ok_detail: str = "ok", **metrics: Any) -> 
 # ---------------------------------------------------------------------------
 
 def check_retrieval(case: Case, ctx: Context) -> Outcome:
-    """Prototype rule: right field, a cited report from a well that had the code, the doc type, no warnings."""
+    """The prototype's retrieval rule.
+
+    Right field, a cited report from a well that had the code, the doc type, no warnings.
+    """
     answer = ctx.ask(case["question"], case.get("top_k", RETRIEVAL_K))
     docs = [c.doc_id for c in answer.citations]
     if not docs:
@@ -200,7 +205,8 @@ def check_grounding(case: Case, ctx: Context) -> Outcome:
                 problems.append(f"{ref}: {cite.doc_id} does not exist")
             elif not verbatim(cite.quote, text):
                 problems.append(f"{ref}: quote not verbatim in {cite.doc_id}")
-    return _outcome(problems, f"{checked} citations verbatim", citations_checked=checked, not_verbatim=len(problems))
+    return _outcome(problems, f"{checked} citations verbatim", citations_checked=checked,
+                    not_verbatim=len(problems))
 
 
 def check_abstention(case: Case, ctx: Context) -> Outcome:
@@ -257,8 +263,10 @@ def risk_matches(risk: adapter.Risk, key: dict[str, Any]) -> bool:
     if key["rig"]:
         return names(risk.rig, key["rig"])
     if key["mwd"]:
-        return names(risk.mwd, key["mwd"]) or bool(risk.scope == "interval" and risk.section == key["section"])
-    return bool(risk.scope == "interval" and risk.section == key["section"] and risk.formation == key["formation"])
+        return names(risk.mwd, key["mwd"]) or bool(risk.scope == "interval"
+                                                    and risk.section == key["section"])
+    return bool(risk.scope == "interval" and risk.section == key["section"]
+                and risk.formation == key["formation"])
 
 
 def describe(risk: adapter.Risk) -> str:
@@ -310,7 +318,8 @@ def check_brief_mitigations(case: Case, ctx: Context) -> Outcome:
     brief = ctx.brief(case)
     count = sum(len(r.mitigations) for r in brief.risks)
     if count:
-        return Outcome(True, f"{count} mitigations across {len(brief.risks)} risks", {"risks": len(brief.risks)})
+        return Outcome(True, f"{count} mitigations across {len(brief.risks)} risks",
+                       {"risks": len(brief.risks)})
     return _fail("no risk in the brief carried a written mitigation", risks=len(brief.risks))
 
 
@@ -339,7 +348,8 @@ def check_brief_driver(case: Case, ctx: Context) -> Outcome:
     metrics = {"expected": expected, "reported": reported, "driver_text": risk.driver}
     if risk.driver_kind == driver and (blamed is None or names(risk.driver_category, blamed)):
         return Outcome(True, f"{describe(risk)} driver: {expected}", metrics)
-    return Outcome(False, f"{describe(risk)} driver is {reported or 'not stated'}, expected {expected}", metrics)
+    return Outcome(False, f"{describe(risk)} driver is {reported or 'not stated'}, expected {expected}",
+                   metrics)
 
 
 def _containing(truth: Truth, doc_id: str, text: str) -> list[dict[str, Any]]:
@@ -347,7 +357,8 @@ def _containing(truth: Truth, doc_id: str, text: str) -> list[dict[str, Any]]:
     quoted = squash(text)
     if not quoted:
         return []
-    rows = truth.rows("SELECT kind, text, label, patterns, code FROM truth_sentences WHERE doc_id = ?", (doc_id,))
+    rows = truth.rows("SELECT kind, text, label, patterns, code FROM truth_sentences WHERE doc_id = ?",
+                      (doc_id,))
     return [dict(r) for r in rows if quoted in r["text"]]
 
 
@@ -366,20 +377,22 @@ def clean_wells(truth: Truth, field_name: str, risk: adapter.Risk, planted: set[
     """
     if risk.rig or risk.mwd:
         column, value = ("rig", risk.rig) if risk.rig else ("mwd", risk.mwd)
-        others = [r["well"] for r in truth.rows(f"SELECT well, {column} AS unit FROM truth_wells WHERE field = ?",
-                                                 (field_name,)) if not names(value, r["unit"])]
+        units = truth.rows(f"SELECT well, {column} AS unit FROM truth_wells WHERE field = ?", (field_name,))
+        others = [r["well"] for r in units if not names(value, r["unit"])]
         if planted:
             marks = ", ".join("?" * len(planted))
             had = truth.column(f"SELECT well FROM truth_events WHERE field = ? AND pattern IN ({marks})",
                                (field_name, *sorted(planted)))
         else:
-            had = truth.column("SELECT well FROM truth_events WHERE field = ? AND code = ?", (field_name, risk.code))
+            had = truth.column("SELECT well FROM truth_events WHERE field = ? AND code = ?",
+                               (field_name, risk.code))
         return set(others) - set(had)
     exposed = truth.column(
         "SELECT d.well FROM truth_docs d, json_each(d.sections) s, json_each(d.formations) f "
         "WHERE d.type = 'ddr' AND d.field = ? AND s.value = ? AND f.value = ?",
         (field_name, risk.section, risk.formation))
-    had = truth.column("SELECT well FROM truth_events WHERE field = ? AND code = ? AND section = ? AND formation = ?",
+    had = truth.column("SELECT well FROM truth_events "
+                       "WHERE field = ? AND code = ? AND section = ? AND formation = ?",
                        (field_name, risk.code, risk.section, risk.formation))
     return set(exposed) - set(had)
 
@@ -389,7 +402,8 @@ def _relates(sentence: dict[str, Any], risk: adapter.Risk, planted: set[str]) ->
     return bool(sentence["code"] == risk.code or planted & set(json.loads(sentence["patterns"])))
 
 
-def mitigation_problem(truth: Truth, field_name: str, risk: adapter.Risk, m: adapter.Mitigation) -> str | None:
+def mitigation_problem(truth: Truth, field_name: str, risk: adapter.Risk,
+                       m: adapter.Mitigation) -> str | None:
     doc = truth.doc(m.doc_id)
     if doc is None:
         return "the source is not a corpus document"
@@ -422,7 +436,8 @@ def check_mitigation_precision(case: Case, ctx: Context) -> Outcome:
             problems.append(f"{risk.code} [{m.doc_id}] {why}: {m.text[:50]!r}")
     precise = len(quoted) - len(problems)
     metrics = {"mitigations": len(quoted), "precise": precise, "precision": round(precise / len(quoted), 4)}
-    return _outcome(problems, f"{len(quoted)} of {len(quoted)} mitigations are related practice from a valid source",
+    return _outcome(problems,
+                    f"{len(quoted)} of {len(quoted)} mitigations are related practice from a valid source",
                     **metrics)
 
 
@@ -437,12 +452,17 @@ def check_mitigation_recall(case: Case, ctx: Context) -> Outcome:
                    for s in _containing(ctx.truth, m.doc_id, m.text))]
     metrics = {"mitigations": len(quoted), "practice_for_pattern": len(good)}
     if good:
-        return Outcome(True, f"{len(good)} of {len(quoted)} mitigations are {case['pattern']} practice", metrics)
-    return Outcome(False, f"none of the {len(quoted)} mitigations is a {case['pattern']} practice sentence", metrics)
+        return Outcome(True, f"{len(good)} of {len(quoted)} mitigations are {case['pattern']} practice",
+                       metrics)
+    return Outcome(False, f"none of the {len(quoted)} mitigations is a {case['pattern']} practice sentence",
+                   metrics)
 
 
 def check_brief_precision(case: Case, ctx: Context) -> Outcome:
-    """Share of listed risks that match a planted key; a pattern split over several risks counts each of them."""
+    """Share of listed risks that match a planted key.
+
+    A pattern split over several risks counts each of them.
+    """
     brief = ctx.brief(case)
     filters = ctx.filters_for(case)
     if not brief.risks:
@@ -458,7 +478,8 @@ def check_brief_precision(case: Case, ctx: Context) -> Outcome:
               f"{', '.join(covered) or 'none'}; filters {'on' if filters else 'off'}")
     if not filters:
         return Outcome(True, detail + "; reported, not scored)", metrics)
-    return Outcome(precision >= case["min_precision"], detail + f"; target {case['min_precision']:.2f})", metrics)
+    return Outcome(precision >= case["min_precision"], detail + f"; target {case['min_precision']:.2f})",
+                   metrics)
 
 
 # ---------------------------------------------------------------------------
@@ -492,9 +513,11 @@ def check_parser_fidelity(case: Case, ctx: Context) -> Outcome:
     metrics = {"precision": round(precision, 4), "recall": round(recall, 4), "parsed": len(parsed),
                "truth": len(gold), "total_hours_parsed": total_parsed, "total_hours_truth": total_gold,
                **{f"{k}_agree": v for k, v in agree.items()}}
-    detail = (f"precision {precision:.3f}, recall {recall:.3f}, {total_parsed} h vs {total_gold} h; depth/section/"
-              f"formation agree on {agree['depth']}/{agree['section']}/{agree['formation']} of {matched}")
-    passed = precision == 1.0 and recall == 1.0 and within(total_parsed, total_gold, TOLERANCES["total_hours"])
+    detail = (f"precision {precision:.3f}, recall {recall:.3f}, {total_parsed} h vs {total_gold} h; "
+              f"depth/section/formation agree on {agree['depth']}/{agree['section']}/{agree['formation']} "
+              f"of {matched}")
+    passed = (precision == 1.0 and recall == 1.0
+              and within(total_parsed, total_gold, TOLERANCES["total_hours"]))
     return Outcome(passed, detail, metrics)
 
 
@@ -540,8 +563,8 @@ def check_format_parity(case: Case, ctx: Context) -> Outcome:
                         problems.append(f"quote of {cite.doc_id} is not a whole ledger row")
                 elif not verbatim(cite.quote, ctx.source_text(cite.doc_id) or ""):
                     problems.append(f"quote not verbatim in {cite.doc_id}")
-        return _outcome(problems, f"ledger rows identical, {checked} quotes verified", citations_checked=checked,
-                        rows=len(other))
+        return _outcome(problems, f"ledger rows identical, {checked} quotes verified",
+                        citations_checked=checked, rows=len(other))
     finally:
         rendered.close()
 
@@ -578,7 +601,8 @@ def check_classifier_accuracy(case: Case, ctx: Context) -> Outcome:
     detail = f"accuracy {accuracy:.3f} ({correct}/{len(rows)}), target {case['min_accuracy']:.2f}"
     if case.get("min_practice_precision") is not None:
         passed = passed and practice_precision >= case["min_practice_precision"]
-        detail += f"; practice precision {practice_precision:.3f}, target {case['min_practice_precision']:.2f}"
+        detail += (f"; practice precision {practice_precision:.3f}, "
+                   f"target {case['min_practice_precision']:.2f}")
     return Outcome(passed, detail, metrics)
 
 

@@ -15,9 +15,9 @@ import re
 from dataclasses import dataclass, field as dc_field
 
 from .bm25 import BM25Index
-from .config import DEFAULT_TOP_K, NPT_CODES, RRF_K
+from .config import DEFAULT_TOP_K, RRF_K
 from .embed import Embedder
-from .models import Document, SearchHit
+from .models import SearchHit
 from .store import Store, VectorIndex
 from .text import canonical_section, normalise, snippet, tokenize
 
@@ -124,10 +124,7 @@ def _allowed_docs(plan: QueryPlan, store: Store) -> set[str] | None:
     if plan.doc_types:
         filters["doc_type"] = plan.doc_types
     docs = store.documents(**filters) if filters else None
-    if docs is None:
-        allowed = None
-    else:
-        allowed = {d.doc_id for d in docs}
+    allowed = None if docs is None else {d.doc_id for d in docs}
 
     # Section and formation live inside the DDR body, so they are applied
     # through the NPT ledger and the parsed metadata rather than SQL on text.
@@ -154,7 +151,8 @@ def _allowed_docs(plan: QueryPlan, store: Store) -> set[str] | None:
     return allowed
 
 
-def rrf_fuse(rankings: dict[str, list[tuple[str, float]]], k: int = RRF_K) -> list[tuple[str, float, dict[str, float]]]:
+def rrf_fuse(rankings: dict[str, list[tuple[str, float]]],
+             k: int = RRF_K) -> list[tuple[str, float, dict[str, float]]]:
     """Reciprocal rank fusion. Scale free, so BM25 and cosine can be mixed."""
     fused: dict[str, float] = {}
     parts: dict[str, dict[str, float]] = {}
@@ -174,7 +172,8 @@ class Searcher:
         self.vectors = vectors
         self.embedder = embedder
 
-    def search(self, question: str, top_k: int = DEFAULT_TOP_K, plan: QueryPlan | None = None) -> tuple[list[SearchHit], QueryPlan]:
+    def search(self, question: str, top_k: int = DEFAULT_TOP_K,
+               plan: QueryPlan | None = None) -> tuple[list[SearchHit], QueryPlan]:
         plan = plan or plan_query(question, self.store)
         allowed = _allowed_docs(plan, self.store)
 
@@ -183,7 +182,7 @@ class Searcher:
         try:
             qvec = self.embedder.embed(question)
             dense = self.vectors.search(qvec, top_k=pool, allowed=allowed)
-        except Exception:
+        except Exception:  # noqa: BLE001 - the dense side is optional
             # If the dense side raises, keyword results are still returned
             # on their own.
             dense = []

@@ -9,7 +9,7 @@ and builds an offset-well risk register for a planned well.
 
 __version__ = "0.1.0"
 
-from .models import Answer, Citation, Document, NptEvent, Risk, RiskBrief, Well  # noqa: F401, E402
+from .models import Answer, Citation, Document, NptEvent, Risk, RiskBrief, Well
 
 __all__ = [
     "Answer", "Citation", "Document", "NptEvent", "Risk", "RiskBrief", "Well", "__version__",

@@ -150,9 +150,11 @@ class Workspace:
 
     def ask(self, question: str, top_k: int = 8, spread_rate: float | None = None) -> AskResult:
         kwargs = {} if spread_rate is None else {"spread_rate": spread_rate}
-        answer = product_ask(question, self.store, self.searcher, narrator=self.narrator, top_k=top_k, **kwargs)
+        answer = product_ask(question, self.store, self.searcher, narrator=self.narrator, top_k=top_k,
+                             **kwargs)
         stats = answer.structured.get("stats") or {}
-        figures = {k: float(stats[k]) for k in ("total_hours", "total_cost_usd", "avoidable_share", "event_count")
+        figures = {k: float(stats[k])
+                   for k in ("total_hours", "total_cost_usd", "avoidable_share", "event_count")
                    if stats.get(k) is not None}
         return AskResult(
             text=answer.text,
@@ -168,8 +170,8 @@ class Workspace:
             raise NotSupported("the brief cannot be built without its risk filters yet")
         brief = build_brief(self.store, well, field_name, td_m, narrator=self.narrator)
         check = verify_brief(brief, self.store)
-        drivers = {(p.code, p.hole_section, p.formation): (_DRIVER_KINDS.get(p.driver_detail.get("attribute", "")),
-                                                         p.driver_detail.get("category"))
+        drivers = {(p.code, p.hole_section, p.formation):
+                   (_DRIVER_KINDS.get(p.driver_detail.get("attribute", "")), p.driver_detail.get("category"))
                    for p in find_patterns(self.store, field_name)}
         risks = []
         for r in brief.risks:
@@ -180,7 +182,8 @@ class Workspace:
             risks.append(Risk(
                 code=r.code, scope="interval", section=r.hole_section or None, formation=r.formation or None,
                 rig=None, mwd=None, driver=r.driver, driver_kind=kind, driver_category=category,
-                mitigations=[Mitigation(text, src.doc_id) for text, src in zip(r.mitigations, sources, strict=True)],
+                mitigations=[Mitigation(text, src.doc_id)
+                             for text, src in zip(r.mitigations, sources, strict=True)],
                 citations=[Cited(c.doc_id, c.quote) for c in r.citations],
             ))
         return Brief(risks=risks, verified=bool(check["ok"]), problems=list(check["problems"]))
@@ -189,7 +192,10 @@ class Workspace:
         return [Pattern(p.code, p.formation, p.hours_total) for p in find_patterns(self.store, field_name)]
 
     def ledger(self, field_name: str | None) -> list[LedgerRow]:
-        """The parsed NPT rows of one field, or of the whole workspace (None), whatever field they were filed under."""
+        """The parsed NPT rows of one field, or of the whole workspace (None).
+
+        Rows are returned whatever field they were filed under.
+        """
         return [
             LedgerRow(e.doc_id, e.field_name or None, e.well, e.date, e.code, e.hours, e.depth_m,
                       e.hole_section or None, e.formation or None)

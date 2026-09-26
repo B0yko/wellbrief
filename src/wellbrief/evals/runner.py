@@ -60,7 +60,8 @@ def _failed(case: Case, seed: int, detail: str) -> CaseResult:
     return CaseResult(case.suite, seed, case.id, case.category, case.gate, case.reason, False, detail)
 
 
-def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool, emit: Emit) -> list[CaseResult]:
+def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool,
+             emit: Emit) -> list[CaseResult]:
     out: list[CaseResult] = []
     with tempfile.TemporaryDirectory(prefix="wellbrief-eval-") as tmp:
         work = Path(tmp)
@@ -68,7 +69,8 @@ def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool, 
         setup_error = ""
         try:
             adapter.generate_corpus(work / "corpus", seed)
-            ctx = suites.Context(seed, work / "corpus", work, load_dir(work / "corpus"), risk_filters=risk_filters)
+            ctx = suites.Context(seed, work / "corpus", work, load_dir(work / "corpus"),
+                                 risk_filters=risk_filters)
         except Exception as exc:  # noqa: BLE001 - reported on every case of the seed
             setup_error = f"error: corpus setup failed: {type(exc).__name__}: {exc}"
         try:
@@ -153,7 +155,8 @@ def run(suite_names: list[str], seeds: list[int], args: list[str], cases_dir: Pa
     meta = results.metadata(args, suite_names, seeds, {"risk_filters": risk_filters, "narrator": "offline"},
                             adapter.version())
     rows: list[CaseResult] = []
-    emit("status: PASS, FAIL, fail for a failed case that is not gated, INFO for a case reported without a score")
+    emit("status: PASS, FAIL, fail for a failed case that is not gated, "
+         "INFO for a case reported without a score")
     for seed in seeds:
         emit(f"seed {seed}")
         rows.extend(run_seed(seed, suite_cases, risk_filters, emit))
