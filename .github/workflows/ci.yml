@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_VERSION: "6"
+  UV_VERSION: "0.12.9"
 
 jobs:
   lint:
