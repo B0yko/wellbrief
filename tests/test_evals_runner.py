@@ -59,7 +59,7 @@ def test_a_workspace_that_cannot_be_built_fails_each_case_without_a_rebuild(
         ctx: suites.Context, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Path] = []
 
-    def broken(corpus_dir: Path, work_dir: Path) -> adapter.Workspace:
+    def broken(corpus_dir: Path, work_dir: Path, **kwargs: Any) -> adapter.Workspace:
         calls.append(work_dir)
         raise ValueError("unreadable store")
 
@@ -76,7 +76,7 @@ def test_corpus_setup_errors_fail_every_case(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(adapter, "generate_corpus", no_corpus)
     lines: list[str] = []
-    rows = runner.run_seed(3, {"extended": [_case(), _case("abstention")]}, True, lines.append)
+    rows = runner.run_seed(3, {"extended": [_case(), _case("abstention")]}, True, "offline", lines.append)
     assert [r.passed for r in rows] == [False, False]
     assert all("corpus setup failed: OSError: disk full" in r.detail for r in rows)
     assert len(lines) == 2

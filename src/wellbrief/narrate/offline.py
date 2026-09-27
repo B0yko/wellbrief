@@ -1,24 +1,19 @@
-"""Narrative layer.
+"""The deterministic, offline narrator.
 
-Every number in an answer is computed before this module runs. What happens
-here is only the wording. That split matters more than it sounds: any
-narrator phrases the same computed figures, and a wrong answer is a retrieval
-or arithmetic bug that can be found, rather than a model that made something
-up.
-
-The offline narrator is the default and, in this version, the only one. It
-writes from templates over the evidence pack and needs no network and no
-model weights. The `Narrator` base class is the interface another narrator
-implements.
+Every number in an answer is computed before this module runs (see `qa.ask`
+and `riskbrief.build_brief`). What happens here is only the wording: this
+narrator writes from templates over the evidence pack and the computed
+figures, needs no network and no model weights, and its output always passes
+`narrate.verify` -- there is nowhere else for it to fall back to. It is the
+default narrator, and the fallback the `llm` narrator (`narrate.llm`) shows
+when its own output fails verification or its call cannot be completed.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-# The first line of an answer that abstains (see `qa.abstention_text`).
-NO_MATCH = "No records in this workspace match that question."
+from .base import NO_MATCH, Narrator
 
 
 def _fmt_hours(h: float) -> str:
@@ -33,16 +28,6 @@ def _fmt_usd(v: float) -> str:
 
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
-
-
-class Narrator:
-    name = "base"
-
-    def answer(self, question: str, evidence: list[dict[str, Any]], summary: dict[str, Any]) -> str:
-        raise NotImplementedError
-
-    def risk_brief(self, brief: Any) -> str:
-        raise NotImplementedError
 
 
 class OfflineNarrator(Narrator):
@@ -144,19 +129,3 @@ class OfflineNarrator(Narrator):
             lines.append(f"Unavoidable background NPT: {_fmt_hours(total)} ({codes}).")
             lines.append("")
         return "\n".join(lines).rstrip()
-
-
-def get_narrator(backend: str = "offline") -> Narrator:
-    """Return the narrator for a backend name.
-
-    `offline` is the only narrator in this version, so every name resolves to
-    it. A model-backed narrator would implement the `Narrator` interface above.
-    """
-    return OfflineNarrator()
-
-
-CITE_RE = re.compile(r"\[([A-Z]{3,4}-[A-Z]{3}-\d{3}(?:-\d{3})?|[A-Z]{3,4}-[A-Z]{3}-\d{3})\]")
-
-
-def extract_cited_ids(text: str) -> set[str]:
-    return set(re.findall(r"\[([A-Za-z0-9_\-]+)\]", text))

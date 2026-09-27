@@ -53,9 +53,9 @@ from .config import (
     NPT_CODES,
     hours_to_usd,
 )
-from .llm import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
 from .miner import MinerScope, exposed_clean_wells, mine_mitigations
 from .models import Answer, Citation, Document, SearchHit
+from .narrate import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
 from .quotes import evidence_quote, quote_page
 from .search import QueryPlan, Searcher, plan_query, quote_terms
 from .store import Store
@@ -362,6 +362,7 @@ def ask(
         "scope": plan.filters_text(types=False),
     }
     text = narrator.answer(question, pack, summary)
+    narrator_rejected = getattr(narrator, "last_rejection", None)
     pack_docs = {doc_id: store.get_document(doc_id) for doc_id in dict.fromkeys(e["doc_id"] for e in pack)}
     citations = [
         Citation(doc_id=e["doc_id"], doc_type=e["doc_type"], well=e["well"], date=e["date"], quote=e["quote"],
@@ -379,4 +380,5 @@ def ask(
         mitigations=mitigations,
         citation_warnings=verify_citations(text, pack, store),
         narrator=narrator.name,
+        narrator_rejected=narrator_rejected,
     )

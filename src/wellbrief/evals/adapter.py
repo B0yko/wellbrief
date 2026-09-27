@@ -17,6 +17,7 @@ handed to the classifier (never their labels).
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,8 +28,8 @@ from ..analytics import find_patterns, interval_patterns
 from ..config import DEFAULT_SPREAD_RATE_USD_PER_DAY as _DEFAULT_SPREAD_RATE
 from ..corpus import FORMATS, build_corpus, write_corpus
 from ..ingest import ingest_folder
-from ..llm import OfflineNarrator
 from ..miner import classify_many
+from ..narrate import Narrator, OfflineNarrator, llm as narrate_llm, verify as narrate_verify
 from ..qa import ask as product_ask
 from ..riskbrief import build_brief, verify_brief
 from ..store import Store
@@ -53,6 +54,17 @@ class AskResult:
     figures: dict[str, float]           # total_hours, total_cost_usd, avoidable_share, event_count
     abstained: bool | None = None       # None: the product does not report it
     warnings: list[str] = field(default_factory=list)
+    narrator_rejected: dict[str, Any] | None = None
+
+
+@dataclass
+class VerifierFaultResult:
+    """One fault-injection probe of the narrate.verify verifier over a real answer."""
+
+    kinds_tested: list[str]
+    caught: list[str]
+    not_caught: list[str]
+    skipped: list[str]
 
 
 @dataclass
@@ -135,16 +147,34 @@ _DRIVER_KINDS = {"mud_weight_sg": "mud_weight", "rig": "rig", "tool_string": "to
 
 
 
+def _narrator_for(narrator_name: str, egress_log_path: Path | None,
+                  known_field_names: frozenset[str] = frozenset()) -> Narrator:
+    """`offline`, or the `llm` narrator built from `WELLBRIEF_LLM_*` (`eval --narrator llm`,
+    exercised only against a fake server in tests): its egress log lives next to the calling
+    seed's temporary workspace, so its spend never mixes with another seed's or another run's.
+    `known_field_names` mirrors the CLI's own narrator construction, so a hallucinated field
+    name is caught the same way in an eval run as it is in `ask`/`brief`."""
+    if narrator_name == "offline":
+        return OfflineNarrator()
+    if egress_log_path is None:
+        raise ValueError("the llm narrator needs an egress log path")
+    return narrate_llm.narrator_from_env(os.environ, egress_log_path, known_field_names=known_field_names)
+
+
 class Workspace:
     """A product store built from one generated corpus (any rendering `ingest_folder` reads:
     `.txt`, `.pdf`, `.docx` or a lone `.csv` NPT ledger), in a directory of its own."""
 
-    def __init__(self, corpus_dir: Path, work_dir: Path) -> None:
+    def __init__(self, corpus_dir: Path, work_dir: Path, narrator: Narrator | None = None,
+                narrator_name: str = "offline", egress_log_path: Path | None = None) -> None:
+        """`narrator` is a ready-made instance (tests that want a specific one); `narrator_name`
+        (with `egress_log_path`) builds one the same way the CLI would, for `eval --narrator`."""
         work_dir.mkdir(parents=True, exist_ok=True)
         self.store = Store(work_dir / "wellbrief.db")
         ingest_folder(self.store, corpus_dir)
         self.searcher = build_searcher(self.store, "offline")
-        self.narrator = OfflineNarrator()
+        self.narrator = narrator or _narrator_for(
+            narrator_name, egress_log_path, known_field_names=frozenset(self.store.field_names()))
 
     def close(self) -> None:
         self.store.close()
@@ -164,7 +194,50 @@ class Workspace:
             figures=figures,
             abstained=answer.abstained,
             warnings=list(answer.citation_warnings),
+            narrator_rejected=answer.narrator_rejected,
         )
+
+    def verify_fault_injection(self, question: str, top_k: int = 8) -> VerifierFaultResult:
+        """Probe `narrate.verify` with every fault kind it is meant to catch, over a real,
+        grounded answer to `question` (always narrated offline, so the text starts out
+        verified): the "verifier catch rate" metric the `verifier-faults` eval suite reports.
+
+        A well from a field other than the answer's own is used for the `foreign_well` fault
+        when the workspace holds more than one field; that kind is skipped otherwise, since
+        there is no foreign well to name.
+        """
+        answer = product_ask(question, self.store, self.searcher, narrator=OfflineNarrator(),
+                             top_k=top_k, spread_rate=_DEFAULT_SPREAD_RATE)
+        evidence = narrate_verify.evidence_from_answer(answer, self.store)
+        baseline = narrate_verify.verify(answer.text, evidence, question)
+        caught: list[str] = []
+        not_caught: list[str] = []
+        skipped: list[str] = []
+        kinds_tested: list[str] = []
+        if not baseline.ok:
+            # The baseline itself does not verify (an abstention, or an empty answer): every
+            # fault kind is reported as skipped, rather than scored against a text that was
+            # never going to pass.
+            return VerifierFaultResult([], [], [], list(narrate_verify.FAULT_KINDS))
+        foreign_well = ""
+        if evidence.fields:
+            own_field = next(iter(evidence.fields))
+            for well in self.store.wells():
+                if well.field_name != own_field:
+                    foreign_well = well.name
+                    break
+        for kind in narrate_verify.FAULT_KINDS:
+            kwargs: dict[str, Any] = {}
+            if kind == "foreign_well":
+                kwargs["foreign_well"] = foreign_well
+            faulted = narrate_verify.inject_fault(answer.text, evidence, kind, **kwargs)
+            if faulted is None:
+                skipped.append(kind)
+                continue
+            kinds_tested.append(kind)
+            result = narrate_verify.verify(faulted, evidence, question)
+            (not_caught if result.ok else caught).append(kind)
+        return VerifierFaultResult(kinds_tested, caught, not_caught, skipped)
 
     def brief(self, field_name: str, well: str, td_m: float, risk_filters: bool = True) -> Brief:
         brief = build_brief(self.store, well, field_name, td_m, narrator=self.narrator,

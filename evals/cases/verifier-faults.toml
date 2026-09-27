@@ -1,0 +1,35 @@
+suite = "verifier-faults"
+
+# The "verifier catch rate" metric: narrate.verify.FAULT_KINDS (a quote with one
+# character changed, a document id outside the pack, an untraceable number, and a
+# well from another field), injected into a real, grounded offline answer and
+# checked against narrate.verify.verify. Every kind the corpus lets a case test
+# must be caught (100 %); a kind a question's answer offers nothing to corrupt is
+# reported as skipped, not failed. Run with `wellbrief eval --suite verifier-faults`
+# (also included in `--suite all`); see the workspace.verify_fault_injection
+# adapter method and evals.suites.check_verifier_faults for what each case runs.
+
+[[case]]
+id = "orrindale-stuck-pipe-figures"
+category = "verifier-faults"
+question = "How many hours of stuck pipe on Orrindale?"
+
+[[case]]
+id = "vessra-lost-circulation-figures"
+category = "verifier-faults"
+question = "Total losses entering Vessra Carbonate on Vessra South"
+
+[[case]]
+id = "orrindale-salt-retrieval"
+category = "verifier-faults"
+question = "Show wellbore instability in Keldra Salt on Orrindale"
+
+[[case]]
+id = "vessra-weather-figures"
+category = "verifier-faults"
+question = "How much time was lost to weather on Vessra South?"
+
+[[case]]
+id = "orrindale-mwd-failure"
+category = "verifier-faults"
+question = "MWD tool failures in the 12 1/4\" section on Orrindale"

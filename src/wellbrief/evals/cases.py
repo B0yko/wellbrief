@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SUITES = ("original", "extended", "brief-precision")
+SUITES = ("original", "extended", "brief-precision", "verifier-faults")
 
 # Value checks per key: a type, or a tuple of allowed values.
 _NUMBER = (int, float)
@@ -59,6 +59,9 @@ CATEGORIES: dict[str, tuple[set[str], set[str]]] = {
     # brief-precision suite
     "brief-precision": (_BRIEF | {"min_precision"}, set()),
     "classifier-accuracy": ({"gold_sql", "min_accuracy"}, {"min_practice_precision"}),
+    # verifier-faults suite: the "verifier catch rate" metric (narrate.verify.FAULT_KINDS,
+    # target 100 % caught), probed over a real, grounded answer to `question`.
+    "verifier-faults": ({"question"}, set()),
 }
 
 # The suites each category may appear in.
@@ -70,6 +73,7 @@ CATEGORY_SUITES: dict[str, tuple[str, ...]] = {
                      "mitigation-precision", "mitigation-recall", "parser-fidelity", "format-parity"),
                     ("extended",)),
     **dict.fromkeys(("brief-precision", "classifier-accuracy"), ("brief-precision",)),
+    "verifier-faults": ("verifier-faults",),
 }
 
 _COMMON = {"id", "category", "gate", "reason"}

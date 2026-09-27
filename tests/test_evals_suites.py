@@ -60,6 +60,9 @@ class Stub:
     def classify(self, sentences: list[str]) -> list[str]:
         return self.answers["classify"](sentences)  # type: ignore[no-any-return]
 
+    def verify_fault_injection(self, question: str, top_k: int = 8) -> adapter.VerifierFaultResult:
+        return self.answers["verify_fault_injection"]  # type: ignore[no-any-return]
+
     def close(self) -> None:
         pass
 
@@ -115,6 +118,24 @@ def test_abstention(tmp_path: Path, answer: adapter.AskResult, passed: bool) -> 
     ctx = _ctx(tmp_path, _vessra(), ask=answer)
     case = Case("extended", "a", "abstention", True, None, {"question": "q", "precondition_sql": "SELECT 1"})
     assert suites.check_abstention(case, ctx).passed is passed
+
+
+def _fault_case() -> Case:
+    return Case("verifier-faults", "vf", "verifier-faults", True, None, {"question": "q"})
+
+
+@pytest.mark.parametrize(("result", "passed"), [
+    (adapter.VerifierFaultResult(["quote_char", "id_outside_pack"], ["quote_char", "id_outside_pack"],
+                                 [], []), True),
+    (adapter.VerifierFaultResult(["quote_char"], [], ["quote_char"], []), False),
+    (adapter.VerifierFaultResult([], [], [], ["quote_char", "id_outside_pack"]), False),
+])
+def test_verifier_faults_passes_only_when_every_tested_kind_is_caught(
+        tmp_path: Path, result: adapter.VerifierFaultResult, passed: bool) -> None:
+    ctx = _ctx(tmp_path, _vessra(), verify_fault_injection=result)
+    outcome = suites.check_verifier_faults(_fault_case(), ctx)
+    assert outcome.passed is passed, outcome.detail
+    assert outcome.metrics["tested"] == result.kinds_tested
 
 
 def test_brief_precision_counts_split_risks_and_reports_the_patterns(tmp_path: Path) -> None:

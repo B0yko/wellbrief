@@ -12,7 +12,14 @@ Every `ask` and `brief` also appends one line to the workspace's
 guard (see `netguard.py`) before running any command: loopback and Unix
 sockets are always allowed, and the configured LLM host is allowed as well
 while this run's narrator is `llm`. Everything else is blocked and counted;
-`status` and `eval` report the count as "outbound connection attempts: N".
+`status` and `eval` report the count as "outbound connection attempts: N",
+and `status` also reports the network mode (`offline`, `local-llm` or
+`remote-llm`, from `egress.network_mode`). The `llm` narrator (`ask`, `brief`
+and `eval --narrator llm`) is built from `WELLBRIEF_LLM_*` environment
+variables (see `narrate.llm.narrator_from_env`); on any failure to build it,
+or on a call it cannot complete or whose text fails verification, the
+deterministic offline narrator answers instead (see `narrate.llm.LlmNarrator`
+for the latter two).
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ from . import (
     analytics,
     audit,
     corpus,
+    egress,
     ingest as ingest_mod,
     netguard,
     riskbrief,
@@ -42,14 +50,12 @@ from . import (
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
-from .llm import get_narrator
+from .narrate import NARRATORS, Narrator, OfflineNarrator, llm as narrate_llm
 from .qa import ask as ask_qa
 from .search import Searcher
 from .settings import Settings, SettingsError, resolve_settings
 from .store import Store
 from .workspace import FieldIndex, Workspace
-
-NARRATORS = ("offline", "llm")
 
 
 def _default_narrator() -> str:
@@ -128,15 +134,39 @@ def _netguard_allow_hosts(narrator: str) -> list[str]:
     return [host]
 
 
-def _reject_unsupported_narrator(command: str, narrator: str) -> int | None:
-    """`None` when the narrator is available; otherwise the exit code the caller should
-    return, having already printed why. Only `offline` is implemented so far -- `llm` (or
-    anything else `WELLBRIEF_NARRATOR` might hold) is a recognised choice on the CLI, not yet
-    a working one."""
-    if narrator == "offline":
-        return None
-    print(f"wellbrief {command}: narrator {narrator!r} is not available yet", file=sys.stderr)
-    return 2
+def _network_mode(narrator: str) -> str:
+    """`egress.network_mode` for `status`: `offline`, `local-llm` or `remote-llm`. Falls back to
+    `offline` for a `WELLBRIEF_LLM_BASE_URL` this reports rather than raises on, since `main()`
+    already validated it (through `_netguard_allow_hosts`) before any command ran; a command that
+    reached this point with `narrator == "llm"` has a usable URL, or none at all."""
+    try:
+        return egress.network_mode(narrator, os.environ.get("WELLBRIEF_LLM_BASE_URL"))
+    except (ValueError, egress.InvalidBaseURL):
+        return "offline"
+
+
+def _build_narrator(command: str, narrator_name: str, ws: Workspace,
+                    store: Store) -> tuple[Narrator | None, int | None]:
+    """The narrator for this invocation: `OfflineNarrator` for `offline`, or the `llm` narrator
+    built from `WELLBRIEF_LLM_*` (see `narrate.llm.narrator_from_env`) for `llm`.
+
+    Returns:
+        `(narrator, None)` on success; `(None, 2)`, having already printed a clean
+        "wellbrief <command>: ..." message, when the `llm` narrator's configuration cannot be
+        used at all (a missing or malformed `WELLBRIEF_LLM_BASE_URL`/`WELLBRIEF_LLM_MODEL`, or a
+        bad budget or price variable). A call the narrator itself cannot complete, or whose text
+        fails verification, is not this function's concern: `narrate.llm.LlmNarrator` falls back
+        to the offline answer for that on its own.
+    """
+    if narrator_name == "offline":
+        return OfflineNarrator(), None
+    try:
+        narrator: Narrator = narrate_llm.narrator_from_env(
+            os.environ, ws.egress_path, known_field_names=frozenset(store.field_names()))
+    except (narrate_llm.LLMConfigError, egress.InvalidBaseURL, ValueError) as exc:
+        print(f"wellbrief {command}: {exc}", file=sys.stderr)
+        return None, 2
+    return narrator, None
 
 
 # --------------------------------------------------------------------------
@@ -246,15 +276,16 @@ def cmd_status(args: argparse.Namespace) -> int:
             "index_stale": manifest is None or manifest.corpus_hash != current_hash,
         })
     blocked = netguard.stats()["blocked"]
+    mode = _network_mode(args.narrator)
     payload = {
         "workspace": ws.name,
         "home": str(ws.home),
         "database": str(ws.db_path),
-        "network_mode": "offline",
+        "network_mode": mode,
         "outbound_connection_attempts": blocked,
         "fields": rows,
     }
-    lines = [f"workspace    : {ws.name} ({ws.root})", "network mode : offline",
+    lines = [f"workspace    : {ws.name} ({ws.root})", f"network mode : {mode}",
              f"outbound connection attempts: {blocked}"]
     if not rows:
         lines.append("fields       : none ingested yet")
@@ -271,11 +302,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    exit_code = _reject_unsupported_narrator("ask", args.narrator)
-    if exit_code is not None:
-        return exit_code
     ws, store, searcher, st = _wire(args)
-    narrator = get_narrator(args.narrator)
+    narrator, exit_code = _build_narrator("ask", args.narrator, ws, store)
+    if narrator is None:
+        store.close()
+        return exit_code if exit_code is not None else 2
     answer = ask_qa(args.question, store, searcher, narrator=narrator,
                     top_k=st.retrieval.top_k, spread_rate=st.spread_rate_usd_per_day,
                     keywords=st.taxonomy.keywords)
@@ -292,9 +323,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
                   "(all listed under figure_sources in --json)")
         for w in answer.citation_warnings:
             print(f"[warning]    {w}", file=sys.stderr)
+        if answer.narrator_rejected:
+            for reason in answer.narrator_rejected["reasons"]:
+                print(f"[warning]    narrator output rejected: {reason}", file=sys.stderr)
 
     fields = list(answer.query_plan.get("fields") or [])
     corpus_hash = store.corpus_hash(fields[0]) if len(fields) == 1 else store.corpus_hash()
+    rejected_reasons = len(answer.narrator_rejected["reasons"]) if answer.narrator_rejected else 0
     audit.log_ask(
         ws.audit_path,
         question=args.question,
@@ -302,8 +337,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
         corpus_hash=corpus_hash,
         narrator=answer.narrator,
         cited_document_ids=list(dict.fromkeys(c.doc_id for c in answer.citations)),
-        verification_ok=not answer.citation_warnings,
-        verification_reasons=len(answer.citation_warnings),
+        verification_ok=not answer.citation_warnings and not answer.narrator_rejected,
+        verification_reasons=len(answer.citation_warnings) + rejected_reasons,
         abstained=answer.abstained,
     )
     store.close()
@@ -311,11 +346,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
-    exit_code = _reject_unsupported_narrator("brief", args.narrator)
-    if exit_code is not None:
-        return exit_code
     ws, store, _, st = _wire(args)
-    narrator = get_narrator(args.narrator)
+    narrator, exit_code = _build_narrator("brief", args.narrator, ws, store)
+    if narrator is None:
+        store.close()
+        return exit_code if exit_code is not None else 2
     risk_thresholds = asdict(st.risk)
     find_patterns_thresholds = {k: v for k, v in risk_thresholds.items() if k != "max_risks"}
     verification_placeholder: dict[str, Any] = {}
@@ -337,6 +372,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
     check = riskbrief.verify_brief(brief, store)
     verification_placeholder.update(check)   # the provenance block carries the same dict
 
+    rejected_reasons = len(brief.narrator_rejected["reasons"]) if brief.narrator_rejected else 0
     audit.log_brief(
         ws.audit_path,
         parameters={
@@ -349,12 +385,15 @@ def cmd_brief(args: argparse.Namespace) -> int:
         narrator=provenance["narrator"],
         cited_document_ids=list(dict.fromkeys(
             c.doc_id for r in brief.risks for c in r.citations)),
-        verification_ok=check["ok"],
-        verification_reasons=len(check["problems"]),
+        verification_ok=check["ok"] and not brief.narrator_rejected,
+        verification_reasons=len(check["problems"]) + rejected_reasons,
     )
 
     for p in check["problems"][:5]:
         print(f"[warning] {p}", file=sys.stderr)
+    if brief.narrator_rejected:
+        for reason in brief.narrator_rejected["reasons"]:
+            print(f"[warning] narrator output rejected: {reason}", file=sys.stderr)
 
     label = "" if check["ok"] else "NOT VERIFIED: "
     if args.format == "json":
@@ -493,15 +532,26 @@ def _seeds(raw: str) -> list[int]:
 def cmd_eval(args: argparse.Namespace) -> int:
     from .evals import cases, results, runner
 
-    unsupported = [flag for flag, used in (("--ablation", args.ablation), ("--repeats", args.repeats != 1),
-                                           ("--narrator llm", args.narrator != "offline")) if used]
+    unsupported = [flag for flag, used in (("--ablation", args.ablation), ("--repeats", args.repeats != 1))
+                  if used]
     if unsupported:
         print(f"wellbrief eval: {', '.join(unsupported)} is not supported yet", file=sys.stderr)
         return 2
+    if args.narrator == "llm":
+        # A fast, filesystem-free configuration check, so a missing or malformed
+        # WELLBRIEF_LLM_* variable is one clean message instead of the same error
+        # repeated for every case of every seed (each seed builds its own llm
+        # narrator, next to its own temporary workspace, once the run actually starts).
+        try:
+            narrate_llm.narrator_from_env(os.environ, Path(os.devnull))
+        except (narrate_llm.LLMConfigError, egress.InvalidBaseURL, ValueError) as exc:
+            print(f"wellbrief eval: {exc}", file=sys.stderr)
+            return 2
     suites = list(EVAL_SUITES) if args.suite == "all" else [args.suite]
     emit = (lambda line: None) if args.json else print
     try:
-        report = runner.run(suites, args.seeds, args.argv, risk_filters=not args.no_risk_filters, emit=emit)
+        report = runner.run(suites, args.seeds, args.argv, risk_filters=not args.no_risk_filters,
+                           narrator=args.narrator, emit=emit)
     except cases.CaseError as exc:
         print(f"wellbrief eval: invalid case file: {exc}", file=sys.stderr)
         return 2
@@ -527,9 +577,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workspace", default=None,
                    help="workspace name inside $WELLBRIEF_HOME (default: $WELLBRIEF_WORKSPACE or 'default')")
     p.add_argument("--narrator", choices=NARRATORS, default=_default_narrator(),
-                   help="narrator that phrases `ask` and `brief` answers (default: "
-                        "$WELLBRIEF_NARRATOR, else 'offline'; 'llm' is a recognised choice "
-                        "that is not implemented yet)")
+                   help="narrator that phrases `ask` and `brief` answers, and (for `eval`) that "
+                        "`eval`'s own ask/brief cases use (default: $WELLBRIEF_NARRATOR, else "
+                        "'offline'; 'llm' calls an OpenAI-compatible server configured through "
+                        "WELLBRIEF_LLM_* environment variables, behind an egress guard and a "
+                        "budget; a call it cannot complete or verify falls back to 'offline')")
     p.add_argument("--spread-rate", type=float, default=None,
                    help="all-in spread rate in USD per day, used for every cost figure "
                         "(default: $WELLBRIEF_SPREAD_RATE_USD_PER_DAY, else 48000)")
@@ -595,7 +647,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("eval", help="run the evaluation suites on freshly generated corpora")
     sp.add_argument("--suite", choices=[*EVAL_SUITES, "all"], default="all",
-                    help="which case suite to run (default: all)")
+                    help="which case suite to run (default: all); 'verifier-faults' measures the "
+                         "narrator verifier's catch rate by injecting a hallucination into a "
+                         "real, grounded answer and checking that it is rejected")
     sp.add_argument("--seeds", type=_seeds, default=[SEED],
                     help=f"comma-separated corpus seeds (default {SEED})")
     sp.add_argument("--out", type=Path, help="also write the full results as JSON to this file")

@@ -1,15 +1,71 @@
 from __future__ import annotations
 
+import socket
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from corpus_files import ParsedCorpus, generated
+from fake_openai import FakeOpenAIServer
 from wellbrief import netguard
 from wellbrief.corpus import SEED
 
 SEEDS = (SEED, 7, 42)
+
+
+@pytest.fixture
+def fake_server() -> Iterator[FakeOpenAIServer]:
+    """A fake OpenAI-compatible chat-completions server on `127.0.0.1:0` (see `fake_openai.py`),
+    for the `llm` narrator's tests -- no paid API is ever called."""
+    server = FakeOpenAIServer().start()
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture
+def second_server() -> Iterator[FakeOpenAIServer]:
+    """A second fake server, distinct from `fake_server`, for redirect and multi-host tests."""
+    server = FakeOpenAIServer().start()
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture
+def closed_port() -> int:
+    """A loopback port with nothing listening on it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+class NetworkUsed(AssertionError):
+    pass
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Fail the test on any connection attempt or name lookup; returns the list of attempts."""
+    attempts: list[str] = []
+
+    def refuse(name: str) -> Any:
+        def _refuse(*args: Any, **kwargs: Any) -> Any:
+            attempts.append(f"{name}{args!r}")
+            raise NetworkUsed(f"network used: {name}{args!r}")
+
+        return _refuse
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse("getaddrinfo"))
+    monkeypatch.setattr(socket, "gethostbyname", refuse("gethostbyname"))
+    monkeypatch.setattr(socket, "create_connection", refuse("create_connection"))
+    monkeypatch.setattr(socket.socket, "connect", refuse("connect"))
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse("connect_ex"))
+    return attempts
 
 
 @pytest.fixture(autouse=True)

@@ -203,6 +203,7 @@ class RiskBrief:
     planned_mwd: str | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
     narrative: str = ""
+    narrator_rejected: dict[str, Any] | None = None
 
     @property
     def counted_risks(self) -> list[Risk]:
@@ -234,6 +235,7 @@ class RiskBrief:
             "risks": [r.to_dict() for r in self.risks],
             "provenance": self.provenance,
             "narrative": self.narrative,
+            "narrator_rejected": self.narrator_rejected,
         }
 
 
@@ -245,7 +247,11 @@ class Answer:
     scopes nothing countable or no entry matches); `figure_sources` lists every
     report that contributes to them, with its hours. An answer that abstains
     carries no figures, no citations and no mitigations, and says in
-    `unmatched` what did not match.
+    `unmatched` what did not match. `narrator_rejected` is set only when the
+    narrator itself replaced its own text with the offline narrator's (a
+    verification failure or a call it could not complete; see
+    `narrate.base.Narrator.last_rejection`), and carries the text it rejected
+    and why.
     """
 
     question: str
@@ -260,6 +266,7 @@ class Answer:
     mitigations: list[dict[str, str]] = field(default_factory=list)
     citation_warnings: list[str] = field(default_factory=list)
     narrator: str = ""
+    narrator_rejected: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -274,4 +281,5 @@ class Answer:
             "mitigations": self.mitigations,
             "citation_warnings": self.citation_warnings,
             "narrator": self.narrator,
+            "narrator_rejected": self.narrator_rejected,
         }

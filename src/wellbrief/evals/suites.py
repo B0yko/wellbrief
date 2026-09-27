@@ -41,12 +41,13 @@ class Context:
     """Everything the checks of one seed share. The workspace is built on first use."""
 
     def __init__(self, seed: int, corpus_dir: Path, work_dir: Path, truth: Truth,
-                 risk_filters: bool = True) -> None:
+                 risk_filters: bool = True, narrator: str = "offline") -> None:
         self.seed = seed
         self.corpus_dir = corpus_dir
         self.work_dir = work_dir
         self.truth = truth
         self.risk_filters = risk_filters
+        self.narrator = narrator
         self.cases: dict[str, Case] = {}
         self._workspace: adapter.Workspace | None = None
         self._workspace_error: Exception | None = None
@@ -59,7 +60,9 @@ class Context:
             raise self._workspace_error
         if self._workspace is None:
             try:
-                self._workspace = adapter.Workspace(self.corpus_dir, self.work_dir / "workspace")
+                self._workspace = adapter.Workspace(self.corpus_dir, self.work_dir / "workspace",
+                                                    narrator_name=self.narrator,
+                                                    egress_log_path=self.work_dir / "egress.jsonl")
             except Exception as exc:
                 self._workspace_error = exc
                 raise
@@ -207,6 +210,23 @@ def check_grounding(case: Case, ctx: Context) -> Outcome:
                 problems.append(f"{ref}: quote not verbatim in {cite.doc_id}")
     return _outcome(problems, f"{checked} citations verbatim", citations_checked=checked,
                     not_verbatim=len(problems))
+
+
+def check_verifier_faults(case: Case, ctx: Context) -> Outcome:
+    """The "verifier catch rate" metric: `narrate.verify` must catch every fault kind it is
+    tested with (100 %), over a real, grounded answer to `question`."""
+    result = ctx.workspace.verify_fault_injection(case["question"])
+    metrics = {"tested": result.kinds_tested, "caught": result.caught, "not_caught": result.not_caught,
+              "skipped": result.skipped}
+    if not result.kinds_tested:
+        return Outcome(False, f"no fault kind could be tested on this answer (skipped: "
+                              f"{', '.join(result.skipped)})", metrics)
+    if result.not_caught:
+        return Outcome(False, f"not caught: {', '.join(result.not_caught)}", metrics)
+    detail = f"caught {len(result.caught)}/{len(result.kinds_tested)}"
+    if result.skipped:
+        detail += f" ({len(result.skipped)} skipped: {', '.join(result.skipped)})"
+    return Outcome(True, detail, metrics)
 
 
 def check_abstention(case: Case, ctx: Context) -> Outcome:
@@ -623,4 +643,5 @@ CHECKS: dict[str, Callable[[Case, Context], Outcome]] = {
     "format-parity": check_format_parity,
     "brief-precision": check_brief_precision,
     "classifier-accuracy": check_classifier_accuracy,
+    "verifier-faults": check_verifier_faults,
 }

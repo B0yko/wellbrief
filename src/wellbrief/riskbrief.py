@@ -32,9 +32,9 @@ from .config import (
     RISK_MIN_WELLS,
     hours_to_usd,
 )
-from .llm import Narrator, OfflineNarrator
 from .miner import MinerScope, mine_mitigations
 from .models import Citation, Risk, RiskBrief
+from .narrate import Narrator, OfflineNarrator
 from .quotes import evidence_quote, quote_page
 from .store import Store
 from .text import tokenize
@@ -248,7 +248,9 @@ def build_brief(
         planned_mwd=plan_mwd,
         provenance=provenance or {},
     )
-    brief.narrative = (narrator or OfflineNarrator()).risk_brief(brief)
+    active_narrator = narrator or OfflineNarrator()
+    brief.narrative = active_narrator.risk_brief(brief)
+    brief.narrator_rejected = getattr(active_narrator, "last_rejection", None)
     return brief
 
 

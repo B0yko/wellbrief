@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 import mini_workspace as mini
-from wellbrief.llm import NO_MATCH
 from wellbrief.models import Answer, Document, NptEvent
+from wellbrief.narrate import NO_MATCH
 from wellbrief.qa import FIGURE_SOURCE_LIMIT, MITIGATIONS_HEADING_AVOIDED, MITIGATIONS_HEADING_GENERAL, ask
 from wellbrief.search import Searcher
 from wellbrief.store import Store

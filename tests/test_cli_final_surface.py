@@ -91,22 +91,26 @@ def test_narrator_env_var_sets_the_default(monkeypatch: pytest.MonkeyPatch) -> N
     assert cli.build_parser().parse_args(["--narrator", "offline", "status"]).narrator == "offline"
 
 
-def test_narrator_llm_is_recognised_but_not_implemented_yet(
+def test_narrator_llm_without_a_configured_host_exits_cleanly(
         home: Path, corpus_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The `llm` narrator is implemented, but every command still needs
+    `WELLBRIEF_LLM_BASE_URL` to build it; without one, each exits 2 with a clean,
+    traceback-free message rather than crashing or silently falling back."""
     assert cli.main(["ingest", str(corpus_dir)]) == 0
     capsys.readouterr()
 
     assert cli.main(["--narrator", "llm", "ask", "What happened on ORD-101?"]) == 2
-    assert "not available yet" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "WELLBRIEF_LLM_BASE_URL" in err and "Traceback" not in err
 
     assert cli.main(["--narrator", "llm", "brief", "--field", "Orrindale",
                      "--well", "ORD-NEXT", "--td", "3100"]) == 2
-    assert "not available yet" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "WELLBRIEF_LLM_BASE_URL" in err and "Traceback" not in err
 
-    # eval already rejected an unsupported narrator before this change; still does, through
-    # the same global flag instead of its own.
     assert cli.main(["--narrator", "llm", "eval", "--suite", "original"]) == 2
-    assert "not supported yet" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "WELLBRIEF_LLM_BASE_URL" in err and "Traceback" not in err
 
 
 def test_narrator_choices_reject_anything_else(capsys: pytest.CaptureFixture[str]) -> None:

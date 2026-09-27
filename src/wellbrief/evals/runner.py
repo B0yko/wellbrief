@@ -60,7 +60,7 @@ def _failed(case: Case, seed: int, detail: str) -> CaseResult:
     return CaseResult(case.suite, seed, case.id, case.category, case.gate, case.reason, False, detail)
 
 
-def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool,
+def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool, narrator: str,
              emit: Emit) -> list[CaseResult]:
     out: list[CaseResult] = []
     with tempfile.TemporaryDirectory(prefix="wellbrief-eval-") as tmp:
@@ -70,7 +70,7 @@ def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool,
         try:
             adapter.generate_corpus(work / "corpus", seed)
             ctx = suites.Context(seed, work / "corpus", work, load_dir(work / "corpus"),
-                                 risk_filters=risk_filters)
+                                 risk_filters=risk_filters, narrator=narrator)
         except Exception as exc:  # noqa: BLE001 - reported on every case of the seed
             setup_error = f"error: corpus setup failed: {type(exc).__name__}: {exc}"
         try:
@@ -148,18 +148,18 @@ class Report:
 
 
 def run(suite_names: list[str], seeds: list[int], args: list[str], cases_dir: Path | None = None,
-        risk_filters: bool = True, emit: Emit = print) -> Report:
+        risk_filters: bool = True, narrator: str = "offline", emit: Emit = print) -> Report:
     """Run the suites on every seed. Case files are validated before anything is generated."""
     cases_dir = cases_dir or default_dir()
     suite_cases = {name: load_suite(cases_dir, name) for name in suite_names}
-    meta = results.metadata(args, suite_names, seeds, {"risk_filters": risk_filters, "narrator": "offline"},
+    meta = results.metadata(args, suite_names, seeds, {"risk_filters": risk_filters, "narrator": narrator},
                             adapter.version())
     rows: list[CaseResult] = []
     emit("status: PASS, FAIL, fail for a failed case that is not gated, "
          "INFO for a case reported without a score")
     for seed in seeds:
         emit(f"seed {seed}")
-        rows.extend(run_seed(seed, suite_cases, risk_filters, emit))
+        rows.extend(run_seed(seed, suite_cases, risk_filters, narrator, emit))
     report = Report(meta, rows)
     emit("")
     for s in summarise(rows):
