@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -130,6 +131,10 @@ class Context:
         doc = self.truth.doc(doc_id)
         return None if doc is None else str(doc["field"])
 
+    def egress_calls(self) -> list[dict[str, Any]]:
+        """Every record this seed's egress log carries so far (`adapter.Workspace.egress_calls`)."""
+        return self.workspace.egress_calls()
+
     def close(self) -> None:
         if self._workspace is not None:
             self._workspace.close()
@@ -239,6 +244,56 @@ def check_grounding(case: Case, ctx: Context) -> Outcome:
                 problems.append(f"{ref}: quote not verbatim in {cite.doc_id}")
     return _outcome(problems, f"{checked} citations verbatim", citations_checked=checked,
                     not_verbatim=len(problems))
+
+
+def check_narrator_ask(case: Case, ctx: Context) -> Outcome:
+    """One measured `ask` call for the narrator comparison: wall-clock latency, any spend
+    this call logged to the seed's own egress log, whether the narrator's own text was
+    replaced by the deterministic fallback, and `AskResult.verified` (an independent
+    re-check the delivered text still traces to its evidence, computed at no extra cost:
+    it sends nothing). Calls `ctx.workspace.ask` directly rather than the cached
+    `ctx.ask`, so a repeated question under `--repeats` is a genuine repeated call, not a
+    cache hit."""
+    before = len(ctx.egress_calls())
+    started = time.perf_counter()
+    answer = ctx.workspace.ask(case["question"], case.get("top_k", RETRIEVAL_K))
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    ctx.record_citations(answer.citations)
+    new_calls = ctx.egress_calls()[before:]
+    cost = sum(float(r.get("cost_usd", 0.0)) for r in new_calls)
+    metrics = {
+        "latency_ms": round(elapsed_ms, 1), "cost_usd": round(cost, 6),
+        "fallback": answer.narrator_rejected is not None, "verified": answer.verified,
+        "citations": len(answer.citations), "abstained": bool(answer.abstained),
+        "calls_logged": len(new_calls),
+    }
+    if not answer.verified:
+        return _fail("the delivered answer does not trace to its own evidence", **metrics)
+    if answer.warnings:
+        return _fail(f"citation warnings: {answer.warnings[:2]}", **metrics)
+    detail = f"{'fallback' if metrics['fallback'] else 'narrated'}, {elapsed_ms:.0f} ms"
+    return Outcome(True, detail, metrics)
+
+
+def check_narrator_brief(case: Case, ctx: Context) -> Outcome:
+    """One measured `brief` call for the narrator comparison, mirroring `check_narrator_ask`."""
+    before = len(ctx.egress_calls())
+    started = time.perf_counter()
+    brief = ctx.workspace.brief(case["field"], case["well"], float(case["td_m"]))
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    ctx.record_citations([c for r in brief.risks for c in r.citations])
+    new_calls = ctx.egress_calls()[before:]
+    cost = sum(float(r.get("cost_usd", 0.0)) for r in new_calls)
+    metrics = {
+        "latency_ms": round(elapsed_ms, 1), "cost_usd": round(cost, 6),
+        "fallback": brief.narrator_rejected is not None, "verified": brief.verified,
+        "risks": len(brief.risks), "calls_logged": len(new_calls),
+    }
+    if not brief.verified:
+        return _fail(f"brief not verified: {brief.problems[:2]}", **metrics)
+    detail = (f"{'fallback' if metrics['fallback'] else 'narrated'}, "
+             f"{len(brief.risks)} risks, {elapsed_ms:.0f} ms")
+    return Outcome(True, detail, metrics)
 
 
 def check_verifier_faults(case: Case, ctx: Context) -> Outcome:
@@ -673,4 +728,6 @@ CHECKS: dict[str, Callable[[Case, Context], Outcome]] = {
     "brief-precision": check_brief_precision,
     "classifier-accuracy": check_classifier_accuracy,
     "verifier-faults": check_verifier_faults,
+    "narrator-ask": check_narrator_ask,
+    "narrator-brief": check_narrator_brief,
 }

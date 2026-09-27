@@ -199,12 +199,18 @@ def test_summarise_adds_a_citations_block_when_given_one() -> None:
     assert "citations" not in runner.summary_line(bare)
 
 
-def test_cli_rejects_options_that_are_not_wired_yet(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_rejects_an_unconfigured_llm_narrator(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--narrator", "llm", "eval"]) == 2
-    assert cli.main(["eval", "--repeats", "3"]) == 2
-    assert "not supported yet" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         cli.main(["eval", "--seeds", "seven"])
+
+
+def test_cli_rejects_repeats_outside_the_narrator_suite(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["eval", "--repeats", "3"]) == 2
+    assert "only supported with --suite narrator" in capsys.readouterr().err
+    assert cli.main(["eval", "--suite", "extended", "--repeats", "2"]) == 2
+    assert cli.main(["eval", "--suite", "narrator", "--ablation", "--repeats", "2"]) == 2
+    assert cli.main(["eval", "--repeats", "0"]) == 2
 
 
 def test_cli_ablation_prints_a_table_and_can_write_json(

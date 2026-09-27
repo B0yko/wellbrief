@@ -1,0 +1,122 @@
+# narrator: one measured ask or brief call per case, for the narrator comparison across
+# backends (offline, a local model and a cloud model). Every case is timed and checked
+# against this run's own egress log; none of them score correctness against the truth
+# database, so there is no gold_sql or precondition_sql here. The 20 ask questions are a
+# mix of retrieval, arithmetic and abstention questions already exercised elsewhere; the
+# two briefs are the same field, well and planned depth used throughout the brief suites.
+
+suite = "narrator"
+
+[[case]]
+id = "narrator-ask-01"
+category = "narrator-ask"
+question = "What caused stuck pipe on Orrindale wells in the 17 1/2\" section?"
+
+[[case]]
+id = "narrator-ask-02"
+category = "narrator-ask"
+question = "Show wellbore instability in Keldra Salt on Orrindale"
+
+[[case]]
+id = "narrator-ask-03"
+category = "narrator-ask"
+question = "Total losses entering Vessra Carbonate on Vessra South"
+
+[[case]]
+id = "narrator-ask-04"
+category = "narrator-ask"
+question = "MWD tool failures in the 12 1/4\" section on Orrindale"
+
+[[case]]
+id = "narrator-ask-05"
+category = "narrator-ask"
+question = "Mud pump problems on Vessra South"
+
+[[case]]
+id = "narrator-ask-06"
+category = "narrator-ask"
+question = "What do the end of well reports recommend for Keldra Salt on Orrindale?"
+
+[[case]]
+id = "narrator-ask-07"
+category = "narrator-ask"
+question = "Cementing problems on Orrindale"
+
+[[case]]
+id = "narrator-ask-08"
+category = "narrator-ask"
+question = "How much time was lost to weather on Vessra South?"
+
+[[case]]
+id = "narrator-ask-09"
+category = "narrator-ask"
+question = "How many hours of wellbore instability on Orrindale?"
+
+[[case]]
+id = "narrator-ask-10"
+category = "narrator-ask"
+question = "How many hours of fishing on Orrindale?"
+
+[[case]]
+id = "narrator-ask-11"
+category = "narrator-ask"
+question = "How many hours of downhole tool failure on Vessra South?"
+
+[[case]]
+id = "narrator-ask-12"
+category = "narrator-ask"
+question = "How many hours of rig repair on Vessra South?"
+
+[[case]]
+id = "narrator-ask-13"
+category = "narrator-ask"
+question = "What was the total non-productive time on ORD-112?"
+
+[[case]]
+id = "narrator-ask-14"
+category = "narrator-ask"
+question = "Total NPT hours in the 12 1/4\" section on Orrindale?"
+
+[[case]]
+id = "narrator-ask-15"
+category = "narrator-ask"
+question = "What share of the NPT on Vessra South was avoidable?"
+
+[[case]]
+id = "narrator-ask-16"
+category = "narrator-ask"
+question = "What did stuck pipe cost on Orrindale at a spread rate of $60,000 per day?"
+
+[[case]]
+id = "narrator-ask-17"
+category = "narrator-ask"
+question = "How much NPT did ORD-199 have?"
+
+[[case]]
+id = "narrator-ask-18"
+category = "narrator-ask"
+question = "How many hours of fishing on Vessra South?"
+
+[[case]]
+id = "narrator-ask-19"
+category = "narrator-ask"
+question = "How much NPT was recorded on the Yarrowvane field?"
+
+[[case]]
+id = "narrator-ask-20"
+category = "narrator-ask"
+question = "Stuck pipe in the Qelvit Dolomite on Orrindale"
+
+[[case]]
+id = "narrator-brief-orrindale"
+category = "narrator-brief"
+field = "Orrindale"
+well = "ORD-NEXT"
+td_m = 3100
+
+[[case]]
+id = "narrator-brief-vessra-south"
+category = "narrator-brief"
+field = "Vessra South"
+well = "VSS-NEXT"
+td_m = 3000

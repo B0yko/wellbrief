@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-SUITES = ("original", "extended", "brief-precision", "verifier-faults")
+SUITES = ("original", "extended", "brief-precision", "verifier-faults", "narrator")
 
 # Value checks per key: a type, or a tuple of allowed values.
 _NUMBER = (int, float)
@@ -62,6 +62,12 @@ CATEGORIES: dict[str, tuple[set[str], set[str]]] = {
     # verifier-faults suite: the "verifier catch rate" metric (narrate.verify.FAULT_KINDS,
     # target 100 % caught), probed over a real, grounded answer to `question`.
     "verifier-faults": ({"question"}, set()),
+    # narrator suite: one measured `ask` or `brief` call per case, timed and checked against
+    # this run's egress log, for the narrator comparison (`eval --suite narrator --narrator ...
+    # --repeats N`). Never scores correctness against the truth database; the comparison is
+    # across narrator backends, not against a gold answer.
+    "narrator-ask": ({"question"}, {"top_k"}),
+    "narrator-brief": (_BRIEF, set()),
 }
 
 # The suites each category may appear in.
@@ -74,6 +80,7 @@ CATEGORY_SUITES: dict[str, tuple[str, ...]] = {
                     ("extended",)),
     **dict.fromkeys(("brief-precision", "classifier-accuracy"), ("brief-precision",)),
     "verifier-faults": ("verifier-faults",),
+    **dict.fromkeys(("narrator-ask", "narrator-brief"), ("narrator",)),
 }
 
 _COMMON = {"id", "category", "gate", "reason"}

@@ -27,6 +27,7 @@ from .. import __version__
 from ..analytics import find_patterns, interval_patterns
 from ..config import DEFAULT_SPREAD_RATE_USD_PER_DAY as _DEFAULT_SPREAD_RATE
 from ..corpus import FORMATS, build_corpus, write_corpus
+from ..egress import EgressLog
 from ..ingest import ingest_folder
 from ..miner import classify_many
 from ..narrate import Narrator, OfflineNarrator, llm as narrate_llm, verify as narrate_verify
@@ -59,6 +60,10 @@ class AskResult:
     abstained: bool | None = None       # None: the product does not report it
     warnings: list[str] = field(default_factory=list)
     narrator_rejected: dict[str, Any] | None = None
+    # An independent re-check, computed once inside `Workspace.ask` from the delivered text and
+    # the same evidence the product itself verified against: it sends nothing, so it is free to
+    # compute for every call, offline narrator included (where it is always True by construction).
+    verified: bool = True
 
 
 @dataclass
@@ -97,6 +102,9 @@ class Brief:
     risks: list[Risk]
     verified: bool
     problems: list[str]
+    # Set only when the narrator was `llm` and its own narrative failed verification (the
+    # offline text was shown instead); `None` for the offline narrator, which never falls back.
+    narrator_rejected: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,9 +187,19 @@ class Workspace:
         self.searcher = build_searcher(self.store, "offline")
         self.narrator = narrator or _narrator_for(
             narrator_name, egress_log_path, known_field_names=frozenset(self.store.field_names()))
+        self._egress_log_path = egress_log_path
 
     def close(self) -> None:
         self.store.close()
+
+    def egress_calls(self) -> list[dict[str, Any]]:
+        """Every record logged so far to this workspace's own egress log: empty before any
+        `llm` narrator call, and always empty for the offline narrator, which sends nothing
+        (the narrator comparison's own spend and latency figures, `evals.suites.
+        check_narrator_ask`/`check_narrator_brief`)."""
+        if self._egress_log_path is None:
+            return []
+        return EgressLog(self._egress_log_path).records()
 
     def ask(self, question: str, top_k: int = 8, spread_rate: float | None = None) -> AskResult:
         rate = _DEFAULT_SPREAD_RATE if spread_rate is None else spread_rate
@@ -191,6 +209,15 @@ class Workspace:
         figures = {k: float(computed[k])
                    for k in ("total_hours", "total_cost_usd", "avoidable_share", "event_count")
                    if computed.get(k) is not None}
+        # An abstention is never narrated or verified by the product itself (`qa._abstain`
+        # returns it straight from the query plan, and it names the very entity that made
+        # nothing match, which the verifier would otherwise flag as outside the evidence);
+        # re-checking it here would fault a reply the product never asked the verifier about.
+        if answer.abstained:
+            verified = True
+        else:
+            evidence = narrate_verify.evidence_from_answer(answer, self.store)
+            verified = narrate_verify.verify(answer.text, evidence, question).ok
         return AskResult(
             text=answer.text,
             ranking=[h.doc_id for h in answer.hits],
@@ -199,6 +226,7 @@ class Workspace:
             abstained=answer.abstained,
             warnings=list(answer.citation_warnings),
             narrator_rejected=answer.narrator_rejected,
+            verified=verified,
         )
 
     def search_ranking(self, question: str, mode: str, top_k: int = 8) -> list[str]:
@@ -276,7 +304,8 @@ class Workspace:
                              for text, src in zip(r.mitigations, sources, strict=True)],
                 citations=[Cited(c.doc_id, c.quote) for c in r.citations],
             ))
-        return Brief(risks=risks, verified=bool(check["ok"]), problems=list(check["problems"]))
+        return Brief(risks=risks, verified=bool(check["ok"]), problems=list(check["problems"]),
+                     narrator_rejected=brief.narrator_rejected)
 
     def patterns(self, field_name: str) -> list[Pattern]:
         """Interval-scope patterns only: this feeds `discovery`, which asks

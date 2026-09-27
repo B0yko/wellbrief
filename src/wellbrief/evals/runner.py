@@ -13,11 +13,12 @@ every gated, scored case passes on every seed.
 
 from __future__ import annotations
 
+import math
 import tempfile
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from statistics import fmean
+from statistics import fmean, median
 from typing import Any
 
 from . import adapter, results, suites
@@ -62,9 +63,15 @@ def _failed(case: Case, seed: int, detail: str) -> CaseResult:
 
 
 def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool, narrator: str,
-             emit: Emit) -> tuple[list[CaseResult], dict[str, dict[str, int]]]:
+             emit: Emit, repeats: int = 1) -> tuple[list[CaseResult], dict[str, dict[str, int]]]:
     """The case results of this seed, and its per-suite citation stats (`suites.Context.
-    citation_stats`; empty when the corpus or workspace could not even be built)."""
+    citation_stats`; empty when the corpus or workspace could not even be built).
+
+    `repeats` runs every case that many times (each a genuine repeated call for the
+    narrator suite; see `suites.check_narrator_ask`), tagging every repeat past the
+    first with its 1-based `repeat` number in `CaseResult.metrics`, so `summarise` can
+    report a per-answer latency and cost over every repeat, not just the first.
+    """
     out: list[CaseResult] = []
     citations: dict[str, dict[str, int]] = {}
     with tempfile.TemporaryDirectory(prefix="wellbrief-eval-") as tmp:
@@ -82,9 +89,13 @@ def run_seed(seed: int, suite_cases: dict[str, list[Case]], risk_filters: bool, 
                 if ctx is not None:
                     ctx.cases = {c.id: c for c in cases}
                 for case in cases:
-                    result = run_case(case, ctx) if ctx is not None else _failed(case, seed, setup_error)
-                    out.append(result)
-                    emit(format_row(result))
+                    for rep in range(1, repeats + 1):
+                        result = (run_case(case, ctx) if ctx is not None
+                                 else _failed(case, seed, setup_error))
+                        if repeats > 1:
+                            result.metrics = {**result.metrics, "repeat": rep}
+                        out.append(result)
+                        emit(format_row(result))
             if ctx is not None:
                 citations = ctx.citation_stats()
         finally:
@@ -131,8 +142,32 @@ def summarise(rows: list[CaseResult],
             percent = round(100 * verbatim_and_resolving / checked, 1) if checked else 100.0
             entry["citations"] = {"checked": checked, "verbatim_and_resolving": verbatim_and_resolving,
                                   "percent": percent}
+        narrator_rows = [r for r in group if r.category in ("narrator-ask", "narrator-brief")]
+        if narrator_rows:
+            entry["narrator"] = _narrator_summary(narrator_rows)
         out.append(entry)
     return out
+
+
+def _narrator_summary(rows: list[CaseResult]) -> dict[str, Any]:
+    """The narrator comparison's own columns, over every answer of one suite and seed
+    (every repeat of every `narrator-ask`/`narrator-brief` case counts as one answer):
+    the fallback-to-deterministic rate, the share whose delivered text still verified,
+    p50 latency and the average spend per answer (from this run's own egress log, via
+    `suites.check_narrator_ask`/`check_narrator_brief`)."""
+    n = len(rows)
+    latencies = [r.metrics["latency_ms"] for r in rows if "latency_ms" in r.metrics]
+    costs = [float(r.metrics.get("cost_usd", 0.0)) for r in rows]
+    fallbacks = sum(1 for r in rows if r.metrics.get("fallback"))
+    verified = [bool(r.metrics["verified"]) for r in rows if "verified" in r.metrics]
+    return {
+        "answers": n,
+        "fallback_rate": round(fallbacks / n, 4),
+        "verified_rate": round(sum(verified) / len(verified), 4) if verified else None,
+        "p50_latency_ms": round(median(latencies), 1) if latencies else None,
+        "total_cost_usd": round(math.fsum(costs), 6),
+        "cost_per_answer_usd": round(math.fsum(costs) / n, 6) if n else None,
+    }
 
 
 def summary_line(s: dict[str, Any]) -> str:
@@ -149,6 +184,12 @@ def summary_line(s: dict[str, Any]) -> str:
         c = s["citations"]
         line += (f"; citations: {c['verbatim_and_resolving']}/{c['checked']} verbatim and resolving "
                  f"({c['percent']:.1f}%)")
+    if "narrator" in s:
+        n = s["narrator"]
+        p50 = "n/a" if n["p50_latency_ms"] is None else f"{n['p50_latency_ms']:.0f} ms"
+        line += (f"; narrator: {n['answers']} answers, fallback {n['fallback_rate']:.0%}, "
+                 f"verified {n['verified_rate']:.0%}, p50 {p50}, "
+                 f"${n['cost_per_answer_usd']:.4f}/answer")
     return line
 
 
@@ -168,11 +209,13 @@ class Report:
 
 
 def run(suite_names: list[str], seeds: list[int], args: list[str], cases_dir: Path | None = None,
-        risk_filters: bool = True, narrator: str = "offline", emit: Emit = print) -> Report:
+        risk_filters: bool = True, narrator: str = "offline", repeats: int = 1,
+        emit: Emit = print) -> Report:
     """Run the suites on every seed. Case files are validated before anything is generated."""
     cases_dir = cases_dir or default_dir()
     suite_cases = {name: load_suite(cases_dir, name) for name in suite_names}
-    meta = results.metadata(args, suite_names, seeds, {"risk_filters": risk_filters, "narrator": narrator},
+    meta = results.metadata(args, suite_names, seeds,
+                            {"risk_filters": risk_filters, "narrator": narrator, "repeats": repeats},
                             adapter.version())
     rows: list[CaseResult] = []
     citations: dict[tuple[str, int], dict[str, int]] = {}
@@ -180,7 +223,8 @@ def run(suite_names: list[str], seeds: list[int], args: list[str], cases_dir: Pa
          "INFO for a case reported without a score")
     for seed in seeds:
         emit(f"seed {seed}")
-        seed_rows, seed_citations = run_seed(seed, suite_cases, risk_filters, narrator, emit)
+        seed_rows, seed_citations = run_seed(seed, suite_cases, risk_filters, narrator, emit,
+                                             repeats=repeats)
         rows.extend(seed_rows)
         for suite, stats in seed_citations.items():
             citations[(suite, seed)] = stats

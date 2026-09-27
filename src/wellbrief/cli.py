@@ -483,8 +483,12 @@ def _scales(raw: str) -> list[int]:
 def cmd_eval(args: argparse.Namespace) -> int:
     from .evals import ablation, cases, results, runner
 
-    if args.repeats != 1:
-        print("wellbrief eval: --repeats is not supported yet", file=sys.stderr)
+    if args.repeats < 1:
+        print("wellbrief eval: --repeats must be at least 1", file=sys.stderr)
+        return 2
+    if args.repeats != 1 and (args.ablation or args.suite != "narrator"):
+        print("wellbrief eval: --repeats > 1 is only supported with --suite narrator",
+             file=sys.stderr)
         return 2
     if args.ablation:
         emit = (lambda line: None) if args.json else print
@@ -510,11 +514,13 @@ def cmd_eval(args: argparse.Namespace) -> int:
         except (narrate_llm.LLMConfigError, egress.InvalidBaseURL, ValueError) as exc:
             print(f"wellbrief eval: {exc}", file=sys.stderr)
             return 2
-    suites = list(EVAL_SUITES) if args.suite == "all" else [args.suite]
+    # 'narrator' is a benchmark comparison across narrator backends, not a correctness gate, so
+    # it is always run by its own explicit --suite name rather than folded into 'all'.
+    suites = [s for s in EVAL_SUITES if s != "narrator"] if args.suite == "all" else [args.suite]
     emit = (lambda line: None) if args.json else print
     try:
         report = runner.run(suites, args.seeds, args.argv, risk_filters=not args.no_risk_filters,
-                           narrator=args.narrator, emit=emit)
+                           narrator=args.narrator, repeats=args.repeats, emit=emit)
     except cases.CaseError as exc:
         print(f"wellbrief eval: invalid case file: {exc}", file=sys.stderr)
         return 2
@@ -702,9 +708,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("eval", help="run the evaluation suites on freshly generated corpora")
     sp.add_argument("--suite", choices=[*EVAL_SUITES, "all"], default="all",
-                    help="which case suite to run (default: all); 'verifier-faults' measures the "
-                         "narrator verifier's catch rate by injecting a hallucination into a "
-                         "real, grounded answer and checking that it is rejected")
+                    help="which case suite to run (default: all, which never includes "
+                         "'narrator'); 'verifier-faults' measures the narrator verifier's catch "
+                         "rate by injecting a hallucination into a real, grounded answer and "
+                         "checking that it is rejected; 'narrator' times and costs one ask/brief "
+                         "call per case against the egress log, for comparing narrator backends "
+                         "with --narrator and --repeats")
     sp.add_argument("--seeds", type=_seeds, default=[SEED],
                     help=f"comma-separated corpus seeds (default {SEED})")
     sp.add_argument("--out", type=Path, help="also write the full results as JSON to this file")
@@ -718,7 +727,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "(BM25 only, hashing only, hybrid RRF without planner filters, hybrid "
                          "with planner filters, the product default); ignores --suite and "
                          "--no-risk-filters, prints a table, --out also writes JSON")
-    sp.add_argument("--repeats", type=int, default=1, help="repeats per case (not supported yet)")
+    sp.add_argument("--repeats", type=int, default=1,
+                    help="repeats per case, each a genuine repeated call (only with "
+                         "--suite narrator, for its latency and cost columns)")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_eval)
 
