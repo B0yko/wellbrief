@@ -187,6 +187,19 @@ def load_suite(cases_dir: Path, name: str) -> list[Case]:
 
 
 def default_dir() -> Path:
-    """`evals/cases` of the source checkout this package runs from, else of the working directory."""
+    """Case files for a caller that passes none of its own, tried in order:
+
+    `evals/cases` of the source checkout this package runs from (unchanged for a checkout
+    or an editable install); else the package's own `cases` directory next to this file,
+    which the wheel build copies the same files into
+    (`[tool.hatch.build.targets.wheel.force-include]` in `pyproject.toml`), so an installed
+    wheel finds them without the repository around it; else `evals/cases` of the working
+    directory, for a caller that resolves its own case files relative to where it runs.
+    """
     checkout = Path(__file__).resolve().parents[3] / "evals" / "cases"
-    return checkout if checkout.is_dir() else Path("evals") / "cases"
+    if checkout.is_dir():
+        return checkout
+    packaged = Path(__file__).resolve().parent / "cases"
+    if packaged.is_dir():
+        return packaged
+    return Path("evals") / "cases"

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from wellbrief.corpus import SEED, build_corpus, write_corpus
-from wellbrief.evals import truth
+from wellbrief.evals import cases as cases_module, truth
 from wellbrief.evals.cases import SUITES, Case, default_dir, load_suite
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "cases"
@@ -16,6 +16,21 @@ CASES = Path(__file__).resolve().parents[1] / "evals" / "cases"
 
 def test_the_default_directory_is_the_checkout() -> None:
     assert default_dir() == CASES
+
+
+def test_the_default_directory_falls_back_to_the_packaged_one(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A wheel install carries no `evals/cases` checkout around it: `default_dir()` must then
+    find the case files a wheel build copies next to this module (see
+    `[tool.hatch.build.targets.wheel.force-include]` in `pyproject.toml`), not fall through to
+    a cwd-relative path that an installed wheel has no reason to have."""
+    fake_module_dir = tmp_path / "site-packages" / "wellbrief" / "evals"
+    fake_module_dir.mkdir(parents=True)
+    packaged_cases = fake_module_dir / "cases"
+    packaged_cases.mkdir()
+    (packaged_cases / "original.toml").write_text("suite = \"original\"\n", encoding="utf-8")
+    monkeypatch.setattr(cases_module, "__file__", str(fake_module_dir / "cases.py"))
+    assert default_dir() == packaged_cases
 
 
 def test_original_suite_has_the_17_prototype_cases() -> None:

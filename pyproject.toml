@@ -30,6 +30,13 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/wellbrief"]
 
+[tool.hatch.build.targets.wheel.force-include]
+# The eval case files live at the repository's own `evals/cases/`, outside the package
+# directory, so an editable or source-checkout run finds them there (see
+# `evals.cases.default_dir`). A built wheel has no repository around it, so this copies
+# the same files into the package at build time; `default_dir` also looks next to itself.
+"evals/cases" = "wellbrief/evals/cases"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

@@ -19,7 +19,10 @@ and `eval --narrator llm`) is built from `WELLBRIEF_LLM_*` environment
 variables (see `narrate.llm.narrator_from_env`); on any failure to build it,
 or on a call it cannot complete or whose text fails verification, the
 deterministic offline narrator answers instead (see `narrate.llm.LlmNarrator`
-for the latter two).
+for the latter two). `selfcheck` (see `selfcheck.py`) runs every offline step
+end to end in a disposable workspace of its own, then the network guard's
+own positive control, and exits non-zero if any of it fails; it is the
+command a network-disabled run proves against.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from . import (
     ingest as ingest_mod,
     netguard,
     riskbrief,
+    selfcheck as selfcheck_mod,
     workspace as workspace_mod,
 )
 from .corpus import MAX_SCALE, SEED
@@ -565,6 +569,22 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def cmd_selfcheck(args: argparse.Namespace) -> int:
+    result = selfcheck_mod.run()
+    print(f"wellbrief selfcheck (seed {corpus.SEED})")
+    for step in result.steps:
+        print(f"  {step.name:<16} {step.seconds:7.3f}s")
+    print(f"outbound connection attempts: {result.outbound_connection_attempts}")
+    if result.guard_error is not None:
+        print(f"guard self-test: error: {result.guard_error}", file=sys.stderr)
+    elif result.guard_probe is not None:
+        print(f"guard self-test: blocked {result.guard_probe['blocked']}/{result.guard_probe['attempted']}")
+    for failure in result.failures:
+        print(f"[failure] {failure}", file=sys.stderr)
+    print("selfcheck: PASS" if result.ok else "selfcheck: FAIL")
+    return 0 if result.ok else 1
+
+
 # --------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -678,6 +698,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also write npt-ledger.csv with every DDR NPT row")
     gp.add_argument("--json", action="store_true", help="machine-readable output")
     gp.set_defaults(func=cmd_corpus_generate)
+
+    sp = sub.add_parser("selfcheck", help="offline end-to-end check plus a network-guard positive control")
+    sp.set_defaults(func=cmd_selfcheck)
     return p
 
 
