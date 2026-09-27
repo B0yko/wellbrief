@@ -116,6 +116,26 @@ def rollup(events: Iterable[NptEvent],
     }
 
 
+def npt_payload(store: Store, spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_DAY, *,
+                field_name: str | None = None, well: str | None = None, code: str | None = None,
+                since: str | None = None) -> dict[str, Any]:
+    """The rollup over the matching ledger rows, as `wellbrief npt --json` and `GET /api/npt`
+    both return it -- built once here from the same store filters, so the two never disagree.
+    `since` is folded into the payload as its own key when given, alongside every key `rollup`
+    itself already returns."""
+    filters: dict[str, Any] = {}
+    if field_name:
+        filters["field_name"] = field_name
+    if code:
+        filters["code"] = code
+    if well:
+        filters["well"] = well
+    if since:
+        filters["since"] = since
+    roll = rollup(store.npt(**filters), spread_rate)
+    return {"since": since, **roll} if since else roll
+
+
 @dataclass
 class Pattern:
     """A problem that repeats across wells in the same place, or on the same

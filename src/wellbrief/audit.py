@@ -17,7 +17,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .models import Answer, RiskBrief
+    from .store import Store
 
 
 def _timestamp() -> str:
@@ -78,6 +82,43 @@ def log_brief(
         "cited_document_ids": cited_document_ids,
         "verification": {"ok": verification_ok, "reasons": verification_reasons},
     })
+
+
+def record_ask(path: Path, store: Store, question: str, answer: Answer) -> None:
+    """Derive `log_ask`'s arguments from an `ask` result and append the record: the one call
+    both `cli.cmd_ask` and the HTTP API's `POST /api/ask` make, so an `ask` run from either
+    place is audited the same way."""
+    fields = list(answer.query_plan.get("fields") or [])
+    corpus_hash = store.corpus_hash(fields[0]) if len(fields) == 1 else store.corpus_hash()
+    rejected_reasons = len(answer.narrator_rejected["reasons"]) if answer.narrator_rejected else 0
+    log_ask(
+        path,
+        question=question,
+        fields=fields,
+        corpus_hash=corpus_hash,
+        narrator=answer.narrator,
+        cited_document_ids=list(dict.fromkeys(c.doc_id for c in answer.citations)),
+        verification_ok=not answer.citation_warnings and not answer.narrator_rejected,
+        verification_reasons=len(answer.citation_warnings) + rejected_reasons,
+        abstained=answer.abstained,
+    )
+
+
+def record_brief(path: Path, brief: RiskBrief, verification: dict[str, Any],
+                 parameters: dict[str, Any]) -> None:
+    """Derive `log_brief`'s arguments from a `brief` result and its citation verification, and
+    append the record: the one call both `cli.cmd_brief` and the HTTP API's brief endpoints
+    make, so a brief built from either place is audited the same way."""
+    rejected_reasons = len(brief.narrator_rejected["reasons"]) if brief.narrator_rejected else 0
+    log_brief(
+        path,
+        parameters=parameters,
+        corpus_hash=brief.provenance.get("corpus_hash", ""),
+        narrator=brief.provenance.get("narrator", ""),
+        cited_document_ids=list(dict.fromkeys(c.doc_id for r in brief.risks for c in r.citations)),
+        verification_ok=verification["ok"] and not brief.narrator_rejected,
+        verification_reasons=len(verification["problems"]) + rejected_reasons,
+    )
 
 
 def read_lines(path: Path) -> list[dict[str, Any]]:

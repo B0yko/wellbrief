@@ -22,7 +22,11 @@ deterministic offline narrator answers instead (see `narrate.llm.LlmNarrator`
 for the latter two). `selfcheck` (see `selfcheck.py`) runs every offline step
 end to end in a disposable workspace of its own, then the network guard's
 own positive control, and exits non-zero if any of it fails; it is the
-command a network-disabled run proves against.
+command a network-disabled run proves against. `serve` (see `server.py`)
+runs the same workspace's `ask`/`brief`/`npt`/`status` behind a local JSON
+API and a static single-page UI, built from the same functions this module
+calls, so its JSON output matches `--json` here; it also appends to the same
+`audit.jsonl` for `ask` and `brief`.
 """
 
 from __future__ import annotations
@@ -34,7 +38,6 @@ import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -49,10 +52,10 @@ from . import (
     netguard,
     riskbrief,
     selfcheck as selfcheck_mod,
+    server as server_mod,
     workspace as workspace_mod,
 )
 from .corpus import MAX_SCALE, SEED
-from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
 from .narrate import NARRATORS, Narrator, OfflineNarrator, llm as narrate_llm
 from .qa import ask as ask_qa
@@ -91,14 +94,8 @@ def _wire(args: argparse.Namespace) -> tuple[Workspace, Store, Searcher, Setting
     ws = _workspace(args)
     store = ws.open_store()
     st = _settings(ws, args)
-    indexes = workspace_mod.ensure_field_indexes(ws, store, bm25_k1=st.retrieval.k1, bm25_b=st.retrieval.b)
-    searcher = Searcher(store, indexes, get_embedder(), rrf_k=st.retrieval.rrf_k)
+    searcher = workspace_mod.wire_searcher(ws, store, st)
     return ws, store, searcher, st
-
-
-def _index_age_seconds(built_at: str) -> float:
-    built = datetime.strptime(built_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-    return (datetime.now(UTC) - built).total_seconds()
 
 
 def _emit(payload: Any, as_json: bool, text: str = "") -> None:
@@ -136,17 +133,6 @@ def _netguard_allow_hosts(narrator: str) -> list[str]:
             f"{base_url!r} has no host name; expected a URL such as 'http://127.0.0.1:8080'"
         )
     return [host]
-
-
-def _network_mode(narrator: str) -> str:
-    """`egress.network_mode` for `status`: `offline`, `local-llm` or `remote-llm`. Falls back to
-    `offline` for a `WELLBRIEF_LLM_BASE_URL` this reports rather than raises on, since `main()`
-    already validated it (through `_netguard_allow_hosts`) before any command ran; a command that
-    reached this point with `narrator == "llm"` has a usable URL, or none at all."""
-    try:
-        return egress.network_mode(narrator, os.environ.get("WELLBRIEF_LLM_BASE_URL"))
-    except (ValueError, egress.InvalidBaseURL):
-        return "offline"
 
 
 def _build_narrator(command: str, narrator_name: str, ws: Workspace,
@@ -260,37 +246,10 @@ def cmd_index(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
-    fields = store.field_names()
-    workspace_mod.check_field_slugs(fields)
-    rows = []
-    for f in fields:
-        counts = store.field_counts(f)
-        current_hash = store.corpus_hash(f)
-        built = workspace_mod.load_field_index(ws, f)
-        manifest = built.manifest if built else None
-        rows.append({
-            "field": f,
-            "documents": counts["documents"],
-            "chunks": counts["chunks"],
-            "npt_events": counts["npt_events"],
-            "corpus_hash": current_hash,
-            "embedder": manifest.embedder if manifest else None,
-            "index_built_at": manifest.built_at if manifest else None,
-            "index_age_seconds": round(_index_age_seconds(manifest.built_at), 1) if manifest else None,
-            "index_stale": manifest is None or manifest.corpus_hash != current_hash,
-        })
-    blocked = netguard.stats()["blocked"]
-    mode = _network_mode(args.narrator)
-    payload = {
-        "workspace": ws.name,
-        "home": str(ws.home),
-        "database": str(ws.db_path),
-        "network_mode": mode,
-        "outbound_connection_attempts": blocked,
-        "fields": rows,
-    }
-    lines = [f"workspace    : {ws.name} ({ws.root})", f"network mode : {mode}",
-             f"outbound connection attempts: {blocked}"]
+    payload = workspace_mod.status_payload(ws, store, args.narrator)
+    rows = payload["fields"]
+    lines = [f"workspace    : {ws.name} ({ws.root})", f"network mode : {payload['network_mode']}",
+             f"outbound connection attempts: {payload['outbound_connection_attempts']}"]
     if not rows:
         lines.append("fields       : none ingested yet")
     for r in rows:
@@ -331,20 +290,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             for reason in answer.narrator_rejected["reasons"]:
                 print(f"[warning]    narrator output rejected: {reason}", file=sys.stderr)
 
-    fields = list(answer.query_plan.get("fields") or [])
-    corpus_hash = store.corpus_hash(fields[0]) if len(fields) == 1 else store.corpus_hash()
-    rejected_reasons = len(answer.narrator_rejected["reasons"]) if answer.narrator_rejected else 0
-    audit.log_ask(
-        ws.audit_path,
-        question=args.question,
-        fields=fields,
-        corpus_hash=corpus_hash,
-        narrator=answer.narrator,
-        cited_document_ids=list(dict.fromkeys(c.doc_id for c in answer.citations)),
-        verification_ok=not answer.citation_warnings and not answer.narrator_rejected,
-        verification_reasons=len(answer.citation_warnings) + rejected_reasons,
-        abstained=answer.abstained,
-    )
+    audit.record_ask(ws.audit_path, store, args.question, answer)
     store.close()
     return 0
 
@@ -376,22 +322,12 @@ def cmd_brief(args: argparse.Namespace) -> int:
     check = riskbrief.verify_brief(brief, store)
     verification_placeholder.update(check)   # the provenance block carries the same dict
 
-    rejected_reasons = len(brief.narrator_rejected["reasons"]) if brief.narrator_rejected else 0
-    audit.log_brief(
-        ws.audit_path,
-        parameters={
-            "field": args.field, "well": args.well, "td_m": args.td,
-            "rig": args.rig, "mwd": args.mwd,
-            "spread_rate_usd_per_day": st.spread_rate_usd_per_day,
-            "format": args.format,
-        },
-        corpus_hash=provenance["corpus_hash"],
-        narrator=provenance["narrator"],
-        cited_document_ids=list(dict.fromkeys(
-            c.doc_id for r in brief.risks for c in r.citations)),
-        verification_ok=check["ok"] and not brief.narrator_rejected,
-        verification_reasons=len(check["problems"]) + rejected_reasons,
-    )
+    audit.record_brief(ws.audit_path, brief, check, parameters={
+        "field": args.field, "well": args.well, "td_m": args.td,
+        "rig": args.rig, "mwd": args.mwd,
+        "spread_rate_usd_per_day": st.spread_rate_usd_per_day,
+        "format": args.format,
+    })
 
     for p in check["problems"][:5]:
         print(f"[warning] {p}", file=sys.stderr)
@@ -401,11 +337,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
     label = "" if check["ok"] else "NOT VERIFIED: "
     if args.format == "json":
-        payload = brief.to_dict()
-        payload["verification"] = check
-        payload["disclaimer"] = riskbrief.DISCLAIMER
-        payload["not_verified"] = not check["ok"]
-        out = json.dumps(payload, indent=2, ensure_ascii=False)
+        out = json.dumps(riskbrief.brief_json(brief, check), indent=2, ensure_ascii=False)
     elif args.format == "md":
         out = riskbrief.render_markdown(brief, check)
     else:
@@ -430,28 +362,19 @@ def cmd_npt(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
     st = _settings(ws, args)
-    filters: dict[str, Any] = {}
-    if args.field:
-        filters["field_name"] = args.field
-    if args.code:
-        filters["code"] = args.code
-    if args.well:
-        filters["well"] = args.well
-    if args.since:
-        filters["since"] = args.since
-    roll = analytics.rollup(store.npt(**filters), st.spread_rate_usd_per_day)
-    payload = {"since": args.since, **roll} if args.since else roll
+    payload = analytics.npt_payload(store, st.spread_rate_usd_per_day, field_name=args.field,
+                                    well=args.well, code=args.code, since=args.since)
     if args.json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         header = f"NPT since {args.since}: " if args.since else ""
-        print(f"{header}{roll['event_count']} events, {roll['well_count']} wells, "
-              f"{roll['total_hours']:,.1f} h NPT, ${roll['total_cost_usd']:,.0f}")
-        print(f"avoidable: {roll['avoidable_hours']:,.1f} h "
-              f"({roll['avoidable_share'] * 100:.0f} %), ${roll['avoidable_cost_usd']:,.0f}")
+        print(f"{header}{payload['event_count']} events, {payload['well_count']} wells, "
+              f"{payload['total_hours']:,.1f} h NPT, ${payload['total_cost_usd']:,.0f}")
+        print(f"avoidable: {payload['avoidable_hours']:,.1f} h "
+              f"({payload['avoidable_share'] * 100:.0f} %), ${payload['avoidable_cost_usd']:,.0f}")
         print()
         print(f"{'code':<26}{'hours':>10}{'events':>9}{'cost':>14}")
-        for row in roll["by_code"]:
+        for row in payload["by_code"]:
             print(f"{row['code']:<26}{row['hours']:>10,.1f}{row['events']:>9}${row['cost_usd']:>13,.0f}")
     store.close()
     return 0
@@ -585,6 +508,29 @@ def cmd_selfcheck(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    ws = _workspace(args)
+    store = ws.open_store()
+    narrator, exit_code = _build_narrator("serve", args.narrator, ws, store)
+    store.close()
+    if narrator is None:
+        return exit_code if exit_code is not None else 2
+    try:
+        httpd = server_mod.create_server(ws, narrator, args.host, args.port)
+    except OSError as exc:
+        print(f"wellbrief serve: {exc}", file=sys.stderr)
+        return 2
+    print(f"wellbrief serve: workspace '{ws.name}', narrator '{narrator.name}', "
+          f"listening on http://{httpd.server_name}:{httpd.server_port}/")
+    try:
+        httpd.serve_forever(poll_interval=0.2)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        httpd.server_close()
+    return 0
+
+
 # --------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -701,6 +647,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("selfcheck", help="offline end-to-end check plus a network-guard positive control")
     sp.set_defaults(func=cmd_selfcheck)
+
+    sp = sub.add_parser("serve", help="run the local JSON API and web UI")
+    sp.add_argument("--host", default=server_mod.DEFAULT_HOST,
+                    help=f"bind address (default {server_mod.DEFAULT_HOST}); binding to anything "
+                         "else prints a warning, since the API has no authentication")
+    sp.add_argument("--port", type=int, default=server_mod.DEFAULT_PORT,
+                    help=f"bind port (default {server_mod.DEFAULT_PORT})")
+    sp.set_defaults(func=cmd_serve)
     return p
 
 

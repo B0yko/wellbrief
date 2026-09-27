@@ -321,6 +321,17 @@ def build_provenance(store: Store, field_name: str, spread_rate: float, narrator
     }
 
 
+def brief_json(brief: RiskBrief, verification: dict[str, Any]) -> dict[str, Any]:
+    """The JSON payload `brief --format json` and the HTTP API's brief endpoints both return:
+    the brief itself, its citation verification result, the disclaimer, and whether it is not
+    verified -- built once here so the CLI and the API never render the same brief differently."""
+    payload = brief.to_dict()
+    payload["verification"] = verification
+    payload["disclaimer"] = DISCLAIMER
+    payload["not_verified"] = not verification["ok"]
+    return payload
+
+
 def _md_escape(text: str) -> str:
     return text.replace("|", "\\|")
 

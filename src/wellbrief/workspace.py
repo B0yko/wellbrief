@@ -24,6 +24,8 @@ import hashlib
 import json
 import os
 import re
+import tempfile
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -31,9 +33,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import netguard
 from .bm25 import BM25Index
 from .config import BM25_B, BM25_K1, EMBED_BACKEND, RRF_K
+from .egress import resolve_network_mode
 from .embed import Embedder, get_embedder
+from .settings import Settings
 from .store import Store, chunk_document_id
 
 if TYPE_CHECKING:
@@ -234,12 +239,35 @@ class FieldIndex:
         return cls(field=field, bm25=bm25, vectors=vectors, manifest=manifest)
 
 
+def _write_atomic(path: Path, write: Any) -> None:
+    """Call `write(tmp_path)` to fill a temp file next to `path`, then `os.replace` it into place.
+
+    `os.replace` is a single directory-entry update, so a reader that opens `path` either sees
+    the old, complete file or the new, complete one -- never a truncated or half-written one.
+    Without this, a concurrent `load_field_index` (any of `bm25.json`, `vectors.f32` or
+    `manifest.json` opened while this function's plain `write_text`/`write` truncated it) would
+    intermittently read a partial file and raise a decode error instead of a clean result.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        write(tmp_path)
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def save_field_index(ws: Workspace, index: FieldIndex) -> None:
     d = ws.field_dir(index.field)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "bm25.json").write_text(json.dumps(index.bm25.to_json()), encoding="utf-8")
-    index.vectors.write(d / "vectors.f32")
-    (d / "manifest.json").write_text(json.dumps(index.manifest.to_dict(), indent=2), encoding="utf-8")
+    _write_atomic(d / "bm25.json",
+                  lambda p: p.write_text(json.dumps(index.bm25.to_json()), encoding="utf-8"))
+    _write_atomic(d / "vectors.f32", index.vectors.write)
+    _write_atomic(d / "manifest.json",
+                  lambda p: p.write_text(json.dumps(index.manifest.to_dict(), indent=2), encoding="utf-8"))
 
 
 def load_field_index(ws: Workspace, field: str) -> FieldIndex | None:
@@ -308,6 +336,26 @@ def rebuild_field_index(ws: Workspace, store: Store, field: str, embed_backend: 
     return index
 
 
+_index_locks: dict[Path, threading.Lock] = {}
+_index_locks_guard = threading.Lock()
+
+
+def _index_lock(ws: Workspace) -> threading.Lock:
+    """One `threading.Lock` per workspace root, created on first use and kept for the life of
+    the process. `ensure_field_indexes` holds it across its whole read-or-rebuild-and-save
+    sequence, so two threads serving concurrent requests against the same never-indexed (or
+    stale) workspace -- `ThreadingHTTPServer` gives every request its own thread -- never both
+    decide a field needs rebuilding and race to write its index files at once.
+    """
+    root = ws.root
+    with _index_locks_guard:
+        lock = _index_locks.get(root)
+        if lock is None:
+            lock = threading.Lock()
+            _index_locks[root] = lock
+        return lock
+
+
 def ensure_field_indexes(ws: Workspace, store: Store, embed_backend: str = EMBED_BACKEND,
                          bm25_k1: float = BM25_K1, bm25_b: float = BM25_B) -> dict[str, FieldIndex]:
     """Every field's index, loaded from disk when it is present, matches the store's current
@@ -316,17 +364,83 @@ def ensure_field_indexes(ws: Workspace, store: Store, embed_backend: str = EMBED
 
     Used to wire `ask` and `brief` so they work right after `ingest` without
     a separate `index` step, while `wellbrief index` stays the explicit,
-    unconditional rebuild.
+    unconditional rebuild. Serialized per workspace (`_index_lock`) so concurrent callers never
+    race on the same on-disk files; `save_field_index`'s writes are also atomic on their own, as
+    a second, independent guard against a reader ever observing a partial file.
     """
     fields = store.field_names()
     check_field_slugs(fields)
     embedder = get_embedder(embed_backend)
     out: dict[str, FieldIndex] = {}
-    for field in fields:
-        existing = load_field_index(ws, field)
-        fresh = (existing is not None and existing.manifest.embedder == embedder.name
-                and existing.manifest.corpus_hash == store.corpus_hash(field)
-                and existing.bm25.k1 == bm25_k1 and existing.bm25.b == bm25_b)
-        out[field] = existing if fresh and existing is not None else rebuild_field_index(
-            ws, store, field, embed_backend, bm25_k1, bm25_b)
+    with _index_lock(ws):
+        for field in fields:
+            existing = load_field_index(ws, field)
+            fresh = (existing is not None and existing.manifest.embedder == embedder.name
+                    and existing.manifest.corpus_hash == store.corpus_hash(field)
+                    and existing.bm25.k1 == bm25_k1 and existing.bm25.b == bm25_b)
+            out[field] = existing if fresh and existing is not None else rebuild_field_index(
+                ws, store, field, embed_backend, bm25_k1, bm25_b)
     return out
+
+
+# --------------------------------------------------------------------------
+# Shared by the CLI and the HTTP API: one query needs one `Searcher`, and
+# `status` (`wellbrief status`, `GET /api/status`) needs one payload.
+# --------------------------------------------------------------------------
+
+
+def wire_searcher(ws: Workspace, store: Store, settings: Settings) -> Searcher:
+    """A `search.Searcher` over `ws`'s per-field indexes, loaded from disk or rebuilt as
+    `ensure_field_indexes` decides, using `settings.retrieval`'s BM25 and RRF knobs.
+
+    The one place `ask` and `brief` -- the CLI's own commands (`cli._wire`) and the HTTP
+    API's handlers (`server.py`) alike -- turn a resolved `Settings` into a `Searcher`, so
+    a query answered through either path is retrieved the same way.
+    """
+    from .search import Searcher as _Searcher
+
+    indexes = ensure_field_indexes(ws, store, bm25_k1=settings.retrieval.k1, bm25_b=settings.retrieval.b)
+    return _Searcher(store, indexes, get_embedder(), rrf_k=settings.retrieval.rrf_k)
+
+
+def _index_age_seconds(built_at: str) -> float:
+    built = datetime.strptime(built_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return (datetime.now(UTC) - built).total_seconds()
+
+
+def status_payload(ws: Workspace, store: Store, narrator: str) -> dict[str, Any]:
+    """What is loaded in `ws`, and how fresh its indexes are: the payload `wellbrief status
+    --json` and `GET /api/status` both return, built once here so the two never drift apart.
+
+    `narrator` is the name (`"offline"` or `"llm"`) the network mode is reported for; it is
+    read from `WELLBRIEF_LLM_BASE_URL` when the narrator is `llm` (`egress.resolve_network_mode`),
+    not from anything this function is passed, since neither the CLI nor a long-running server
+    process has looked at that variable more than once already.
+    """
+    fields = store.field_names()
+    check_field_slugs(fields)
+    rows = []
+    for f in fields:
+        counts = store.field_counts(f)
+        current_hash = store.corpus_hash(f)
+        built = load_field_index(ws, f)
+        manifest = built.manifest if built else None
+        rows.append({
+            "field": f,
+            "documents": counts["documents"],
+            "chunks": counts["chunks"],
+            "npt_events": counts["npt_events"],
+            "corpus_hash": current_hash,
+            "embedder": manifest.embedder if manifest else None,
+            "index_built_at": manifest.built_at if manifest else None,
+            "index_age_seconds": round(_index_age_seconds(manifest.built_at), 1) if manifest else None,
+            "index_stale": manifest is None or manifest.corpus_hash != current_hash,
+        })
+    return {
+        "workspace": ws.name,
+        "home": str(ws.home),
+        "database": str(ws.db_path),
+        "network_mode": resolve_network_mode(narrator),
+        "outbound_connection_attempts": netguard.stats()["blocked"],
+        "fields": rows,
+    }

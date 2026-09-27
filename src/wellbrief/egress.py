@@ -62,6 +62,7 @@ __all__ = [
     "estimate_request_tokens",
     "is_loopback_host",
     "network_mode",
+    "resolve_network_mode",
     "split_base_url",
     "unique_ids",
     "utc_timestamp",
@@ -276,6 +277,18 @@ def network_mode(narrator: str, base_url: str | None) -> NetworkMode:
     if not base_url:
         return "offline"
     return "local-llm" if is_loopback_host(split_base_url(base_url).host) else "remote-llm"
+
+
+def resolve_network_mode(narrator: str, env: dict[str, str] | None = None) -> NetworkMode:
+    """:func:`network_mode` for a caller that only has the narrator name and the process
+    environment, such as ``status`` and the HTTP API: reads ``WELLBRIEF_LLM_BASE_URL`` from
+    ``env`` (``os.environ`` by default) and falls back to ``"offline"`` for a narrator name or a
+    base URL that :func:`network_mode` itself would raise on, since a caller that reached this
+    point already validated its own configuration (or is not using it at all)."""
+    try:
+        return network_mode(narrator, (env if env is not None else os.environ).get("WELLBRIEF_LLM_BASE_URL"))
+    except (ValueError, InvalidBaseURL):
+        return "offline"
 
 
 def check_egress(base_url: str, allow_remote: bool) -> BaseURL:
