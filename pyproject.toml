@@ -5,16 +5,48 @@ build-backend = "hatchling.build"
 [project]
 name = "wellbrief"
 version = "0.1.0"
-description = "Offline retrieval and non-productive time analytics over drilling well files."
+description = "Offline-first RAG for drilling engineers: cited answers from well files and a pre-spud offset-well risk brief."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Andrii Boiko" }]
+keywords = [
+    "rag",
+    "retrieval-augmented-generation",
+    "air-gapped",
+    "offline-first",
+    "oil-and-gas",
+    "drilling",
+    "petroleum-engineering",
+    "hybrid-search",
+    "bm25",
+    "citations",
+    "llm-evaluation",
+    "local-llm",
+    "sqlite",
+    "document-intelligence",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
 dependencies = [
     # The floor excludes every pypdf release with a published advisory on the text-extraction
     # path `readers.pdf.read_pdf` uses, as of 2026-09-26; a packaging-phase ADR records why.
     "pypdf>=6.19.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/B0yko/wellbrief"
+Repository = "https://github.com/B0yko/wellbrief"
+Issues = "https://github.com/B0yko/wellbrief/issues"
 
 [project.scripts]
 wellbrief = "wellbrief.cli:main"
@@ -39,6 +71,15 @@ packages = ["src/wellbrief"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["wellbrief"]
+
+[tool.coverage.report]
+show_missing = true
+# Measured line coverage is currently well above this; the gate guards against a
+# regression below the project's stated target, not a target in itself.
+fail_under = 85
 
 [tool.ruff]
 line-length = 110
