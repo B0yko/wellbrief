@@ -76,10 +76,13 @@ flowchart TD
     dense --> rrf
     rrf --> pack["Evidence pack"]
 
-    store --> sql["SQL figures over npt_events"]
-    pack --> miner["Mitigation miner<br/>(clean wells, practice only)"]
-    sql --> narrator["Narrator: offline template<br/>or LLM behind an egress guard"]
-    miner --> narrator
+    filters --> sql["SQL figures over npt_events"]
+    store --> sql
+    filters --> miner["Mitigation miner<br/>(clean wells, practice only)"]
+    store --> miner
+    sql --> pack
+    miner --> pack
+    pack --> narrator["Narrator: offline template<br/>or LLM behind an egress guard"]
     narrator --> verify["Verifier: quotes verbatim,<br/>cited ids in the pack,<br/>numbers traceable"]
     verify --> out["Answer / brief + audit.jsonl"]
 ```
@@ -89,14 +92,21 @@ before retrieval, not after: they narrow the candidate set before BM25 and the h
 run, so a question that names a well or a section only ever ranks documents that could actually
 answer it. The two rankings are fused with reciprocal rank fusion (RRF) and the best chunk of
 each document is kept before the top-k cut. Numeric figures never come from the language model:
-they are computed with SQL over the NPT ledger, and the narrator only phrases them. Mitigations
-are mined separately: a sentence is only shown as a mitigation when it is a practice sentence
-(not a description of the failure itself) from a well that did not have the problem, or a
-corrective action from an incident report with the same NPT code. Whatever narrator produced the
-text, a verifier checks every cited document id against the evidence pack, every number in the
-text against the pack's quotes and computed figures, and every well or field name against the
-same universe, before the answer is shown; a check that fails falls back to the deterministic
-offline narrator with a visible banner, never a silently wrong answer.
+they are computed with SQL over the NPT ledger from the same structured filters, independently of
+the retrieval ranking, and the narrator only phrases them. Mitigations are mined the same way,
+also from the structured filters rather than from the retrieval hits: a sentence is only shown as
+a mitigation when it is a practice sentence (not a description of the failure itself) from a well
+that did not have the problem, or a corrective action from an incident report with the same NPT
+code. The figures' source reports and the mitigations' source documents join the retrieval hits in
+the evidence pack, each with its own verbatim quote, before anything reaches the narrator — the
+pack is what the SQL and miner side feed, not the other way around. The pre-spud risk brief has no
+retrieval step at all: it finds a field's own risk patterns directly from the ledger and reuses
+this same miner, so its citations come from the SQL and miner side only, checked by comparing each
+citation's quote directly against its source document rather than through an evidence pack.
+Whatever narrator produced the text, a verifier checks every cited document id against the
+evidence pack, every number in the text against the pack's quotes and computed figures, and every
+well or field name against the same universe, before the answer is shown; a check that fails falls
+back to the deterministic offline narrator with a visible banner, never a silently wrong answer.
 
 ## Offline by default
 
@@ -138,6 +148,7 @@ for them the CLI layer only ever provides `--config`.
 | --- | --- | --- |
 | `WELLBRIEF_HOME` | workspace root directory | `~/.wellbrief` |
 | `WELLBRIEF_WORKSPACE` | workspace name inside `WELLBRIEF_HOME` | `default` |
+| `WELLBRIEF_EMBED_BACKEND` | dense-retrieval embedder backend name | `offline` (the only backend implemented; any other value is currently a no-op — see [Roadmap](#roadmap)) |
 | `WELLBRIEF_NARRATOR` | `offline` or `llm` | `offline` |
 | `WELLBRIEF_LLM_BASE_URL` | OpenAI-compatible server base URL | none (the `llm` narrator refuses to build without it) |
 | `WELLBRIEF_LLM_MODEL` | model name sent in every request | none (same) |
