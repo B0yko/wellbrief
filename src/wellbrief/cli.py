@@ -8,7 +8,11 @@ workspace's store and its per-field index files (see `workspace.py`).
 `patterns`, `corpus generate` and `eval`, switching that command's output to
 machine-readable JSON; `brief` has its own `--format text|md|json` instead.
 Every `ask` and `brief` also appends one line to the workspace's
-`audit.jsonl` (see `audit.py`).
+`audit.jsonl` (see `audit.py`). `main()` installs the process-level network
+guard (see `netguard.py`) before running any command: loopback and Unix
+sockets are always allowed, and the configured LLM host is allowed as well
+while this run's narrator is `llm`. Everything else is blocked and counted;
+`status` and `eval` report the count as "outbound connection attempts: N".
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import (
     __version__,
@@ -30,6 +35,7 @@ from . import (
     audit,
     corpus,
     ingest as ingest_mod,
+    netguard,
     riskbrief,
     workspace as workspace_mod,
 )
@@ -90,6 +96,36 @@ def _emit(payload: Any, as_json: bool, text: str = "") -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(text)
+
+
+def _netguard_allow_hosts(narrator: str) -> list[str]:
+    """Extra host the process-level network guard should allow, beyond loopback and Unix
+    sockets: the configured LLM host, and only while this invocation's narrator is `llm`.
+    `WELLBRIEF_LLM_BASE_URL` is read directly rather than through `Settings`, because the
+    guard is installed before any workspace or configuration file is resolved.
+
+    Raises:
+        ValueError: `WELLBRIEF_LLM_BASE_URL` is set but is not a URL with a host name, with
+            no mention of the variable name (the caller adds that, so it reads the same
+            whether this function rejected it or `netguard.install` did, for a host name
+            this function extracted but that is not one `install` accepts). `main` turns it
+            into a clean "wellbrief: ..." message and exit code 2, rather than a crash,
+            since a malformed URL should still fail closed but not with a raw traceback.
+    """
+    if narrator != "llm":
+        return []
+    base_url = os.environ.get("WELLBRIEF_LLM_BASE_URL")
+    if not base_url:
+        return []
+    try:
+        host = urlsplit(base_url).hostname
+    except ValueError as exc:
+        raise ValueError(f"{base_url!r} is not a valid URL: {exc}") from exc
+    if not host:
+        raise ValueError(
+            f"{base_url!r} has no host name; expected a URL such as 'http://127.0.0.1:8080'"
+        )
+    return [host]
 
 
 def _reject_unsupported_narrator(command: str, narrator: str) -> int | None:
@@ -209,14 +245,17 @@ def cmd_status(args: argparse.Namespace) -> int:
             "index_age_seconds": round(_index_age_seconds(manifest.built_at), 1) if manifest else None,
             "index_stale": manifest is None or manifest.corpus_hash != current_hash,
         })
+    blocked = netguard.stats()["blocked"]
     payload = {
         "workspace": ws.name,
         "home": str(ws.home),
         "database": str(ws.db_path),
         "network_mode": "offline",
+        "outbound_connection_attempts": blocked,
         "fields": rows,
     }
-    lines = [f"workspace    : {ws.name} ({ws.root})", "network mode : offline"]
+    lines = [f"workspace    : {ws.name} ({ws.root})", "network mode : offline",
+             f"outbound connection attempts: {blocked}"]
     if not rows:
         lines.append("fields       : none ingested yet")
     for r in rows:
@@ -466,6 +505,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     except cases.CaseError as exc:
         print(f"wellbrief eval: invalid case file: {exc}", file=sys.stderr)
         return 2
+    emit(f"outbound connection attempts: {netguard.stats()['blocked']}")
     payload = report.to_dict()
     if args.out:
         results.write(payload, args.out)
@@ -591,6 +631,16 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
     args.argv = argv
+    # Installed here, never on import: a library caller who wants the guard calls
+    # `wellbrief.netguard.install()` itself. Loopback and Unix sockets are always
+    # allowed; the configured LLM host is allowed only while this run's narrator is `llm`.
+    # A malformed WELLBRIEF_LLM_BASE_URL is a configuration problem like any other, so it
+    # gets the same clean message and exit code rather than a raw traceback.
+    try:
+        netguard.install(allow_hosts=_netguard_allow_hosts(args.narrator))
+    except ValueError as exc:
+        print(f"wellbrief: WELLBRIEF_LLM_BASE_URL: {exc}", file=sys.stderr)
+        return 2
     func: Callable[[argparse.Namespace], int] = args.func
     try:
         return func(args)

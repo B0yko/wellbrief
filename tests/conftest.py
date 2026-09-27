@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from corpus_files import ParsedCorpus, generated
+from wellbrief import netguard
 from wellbrief.corpus import SEED
 
 SEEDS = (SEED, 7, 42)
+
+
+@pytest.fixture(autouse=True)
+def _uninstalled_netguard_after_every_test() -> Iterator[None]:
+    """`cli.main()` installs the process-level network guard on every call (see
+    `cli.py`), and it stays installed until something removes it: nothing in the CLI
+    itself uninstalls it, since the guard is meant to protect the whole process for as
+    long as it runs. A test that calls `cli.main()` would otherwise leave the guard
+    installed for every test that runs after it in the same session, so this fixture
+    removes it once the test is done, regardless of whether the test installed it."""
+    yield
+    netguard.uninstall()
 
 
 @pytest.fixture(scope="session")
