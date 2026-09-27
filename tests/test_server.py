@@ -147,9 +147,23 @@ def test_static_files_are_served_same_origin_with_no_external_reference(
     assert not _PROTOCOL_RELATIVE_RE.search(text)
 
 
-def test_app_js_never_uses_innerhtml() -> None:
-    text = (server.WEB_DIR / "app.js").read_text(encoding="utf-8")
-    assert "innerHTML" not in text
+# app.js documents the DOM-safety rule in its own header comment, which names these APIs to
+# explain why they are never called; a plain substring search would trip over that comment, so
+# every "//" line comment is stripped first and the remaining source is checked for the actual
+# sink patterns (an assignment or a call), not just the bare words.
+_UNSAFE_DOM_SINKS = [
+    re.compile(r"\.innerHTML\s*="),
+    re.compile(r"\.outerHTML\s*="),
+    re.compile(r"\.insertAdjacentHTML\s*\("),
+    re.compile(r"document\s*\.\s*write\s*\("),
+]
+
+
+def test_app_js_never_assigns_unsafe_markup() -> None:
+    lines = (server.WEB_DIR / "app.js").read_text(encoding="utf-8").splitlines()
+    code_only = "\n".join(re.sub(r"//.*$", "", line) for line in lines)
+    for pattern in _UNSAFE_DOM_SINKS:
+        assert not pattern.search(code_only), f"app.js must never use {pattern.pattern}"
 
 
 def test_index_html_has_no_inline_style_attributes() -> None:
@@ -163,6 +177,32 @@ def test_index_html_scripts_all_carry_a_src_attribute() -> None:
     assert tags, "expected at least one <script> tag in index.html"
     for tag in tags:
         assert re.search(r"\bsrc\s*=", tag, re.IGNORECASE), f"inline <script> with no src: {tag!r}"
+
+
+def test_index_html_has_the_three_keyboard_accessible_tabs() -> None:
+    text = (server.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert text.count('role="tab"') == 3
+    assert text.count('role="tabpanel"') == 3
+    for name in ("ask", "brief", "npt"):
+        assert f'id="tab-{name}"' in text
+        assert f'id="panel-{name}"' in text
+        assert f'aria-controls="panel-{name}"' in text
+
+
+def test_index_html_gates_brief_downloads_disabled_until_a_brief_is_built() -> None:
+    text = (server.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'id="brief-download-md"' in text
+    assert 'id="brief-download-json"' in text
+    # Neither download link carries an href until app.js builds one for a verified brief.
+    assert not re.search(r'id="brief-download-(?:md|json)"[^>]*\bhref=', text)
+
+
+def test_app_js_calls_every_json_endpoint() -> None:
+    # Not a browser test (none is available here): a plain source check that the page actually
+    # wires up every endpoint `server.py` implements, so a rename on one side would show up here.
+    text = (server.WEB_DIR / "app.js").read_text(encoding="utf-8")
+    for endpoint in ("/api/status", "/api/ask", "/api/brief", "/api/npt", "/api/doc/", "/api/brief."):
+        assert endpoint in text, f"app.js never references {endpoint}"
 
 
 def test_static_file_post_is_method_not_allowed(running_server: str) -> None:
@@ -251,6 +291,15 @@ def test_ask_records_an_audit_line(running_server: str, ws: Workspace) -> None:
     lines = audit.read_lines(ws.audit_path)
     assert len(lines) == before + 1
     assert lines[-1]["command"] == "ask"
+
+
+def test_ask_with_an_xss_payload_question_comes_back_as_json_data_not_markup(running_server: str) -> None:
+    # A question is never parsed as markup anywhere on this path: the API only ever returns it
+    # inside a JSON string, and the page only ever renders it with `textContent` (see app.js).
+    status, headers, payload = _json(running_server, "/api/ask", method="POST", body={"question": XSS_TEXT})
+    assert status == 200
+    assert headers["Content-Type"].startswith("application/json")
+    assert payload["question"] == XSS_TEXT
 
 
 # ---------------------------------------------------------------------------

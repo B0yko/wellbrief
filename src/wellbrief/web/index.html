@@ -4,24 +4,231 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wellbrief</title>
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header>
-  <h1>wellbrief</h1>
-  <p id="subtitle">local offset-well archive</p>
-</header>
-<main>
-  <p>
-    This page is a placeholder. The ask, brief and NPT views are built on top of the JSON API
-    this same server answers under <code>/api/...</code>.
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="app-header">
+  <div class="brand">
+    <h1>wellbrief</h1>
+    <p class="workspace-line">Workspace <span id="workspace-name">-</span></p>
+  </div>
+  <p class="header-status">
+    <span id="network-badge" class="badge" data-mode="offline">network: -</span>
   </p>
-  <dl id="status-list">
-    <dt>workspace</dt><dd id="status-workspace">-</dd>
-    <dt>network mode</dt><dd id="status-network-mode">-</dd>
-    <dt>outbound connection attempts</dt><dd id="status-blocked">-</dd>
-  </dl>
+</header>
+
+<nav class="tabs no-print" role="tablist" aria-label="wellbrief views">
+  <button type="button" role="tab" id="tab-ask" aria-controls="panel-ask" aria-selected="true"
+          tabindex="0" class="tab" data-tab="ask">Ask</button>
+  <button type="button" role="tab" id="tab-brief" aria-controls="panel-brief" aria-selected="false"
+          tabindex="-1" class="tab" data-tab="brief">Brief</button>
+  <button type="button" role="tab" id="tab-npt" aria-controls="panel-npt" aria-selected="false"
+          tabindex="-1" class="tab" data-tab="npt">NPT</button>
+</nav>
+
+<main id="main">
+
+<section id="panel-ask" role="tabpanel" aria-labelledby="tab-ask" tabindex="0" class="panel">
+  <h2 class="panel-title">Ask the archive</h2>
+  <p class="panel-lead">
+    Questions run against the documents and NPT ledger already ingested into this workspace.
+    Every figure comes from the ledger; every quote is copied verbatim from its source.
+  </p>
+
+  <form id="ask-form" class="stack no-print">
+    <div class="field">
+      <label for="ask-field">Field</label>
+      <select id="ask-field">
+        <option value="">All fields</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="ask-question">Question</label>
+      <textarea id="ask-question" rows="2" required
+                placeholder="What non-productive time was recorded on this field?"></textarea>
+    </div>
+    <div class="field-row">
+      <div class="field field-narrow">
+        <label for="ask-top-k">Results</label>
+        <input id="ask-top-k" type="number" min="1" max="20" step="1" value="8">
+      </div>
+      <button type="submit" class="primary">Ask</button>
+    </div>
+  </form>
+
+  <div class="examples no-print">
+    <p class="examples-label" id="ask-examples-label">Example questions</p>
+    <div id="ask-examples" class="chip-row" aria-labelledby="ask-examples-label"></div>
+  </div>
+
+  <p id="ask-status" class="status-line" role="status" aria-live="polite"></p>
+
+  <section id="ask-result" class="result" hidden>
+    <div class="badge-row">
+      <span id="ask-verify-badge" class="badge" data-state="verified"></span>
+    </div>
+    <p id="ask-narrator-banner" class="banner" hidden></p>
+
+    <p id="ask-answer-text" class="answer-text"></p>
+
+    <div class="chip-section">
+      <p class="chip-section-label">Citations</p>
+      <div id="ask-citations" class="chip-row"></div>
+    </div>
+
+    <section id="ask-mitigations-section" class="sub-section" hidden>
+      <h3>Related mitigations</h3>
+      <ul id="ask-mitigations-list" class="mitigation-list"></ul>
+    </section>
+
+    <details class="detail-block">
+      <summary>Query plan</summary>
+      <p id="ask-plan-summary" class="plan-summary"></p>
+      <dl id="ask-plan-list" class="kv-list"></dl>
+    </details>
+
+    <details id="ask-figures-block" class="detail-block" hidden>
+      <summary>Figures</summary>
+      <dl id="ask-figures-list" class="kv-list"></dl>
+    </details>
+  </section>
+</section>
+
+<section id="panel-brief" role="tabpanel" aria-labelledby="tab-brief" tabindex="0" class="panel" hidden>
+  <h2 class="panel-title">Offset-well risk brief</h2>
+  <p class="panel-lead">
+    A pre-spud register of what went wrong on the offset wells, ranked by expected cost at the
+    configured spread rate, with the mitigation each risk's clean wells wrote down.
+  </p>
+
+  <form id="brief-form" class="stack no-print">
+    <div class="field">
+      <label for="brief-field">Field</label>
+      <select id="brief-field" required></select>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="brief-well">Planned well</label>
+        <input id="brief-well" type="text" required placeholder="e.g. ORD-129" autocomplete="off">
+      </div>
+      <div class="field field-narrow">
+        <label for="brief-td">Planned TD (m)</label>
+        <input id="brief-td" type="number" min="1" step="1" required>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="brief-rig">Rig (optional)</label>
+        <input id="brief-rig" type="text" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="brief-mwd">MWD tool (optional)</label>
+        <input id="brief-mwd" type="text" autocomplete="off">
+      </div>
+      <div class="field field-narrow">
+        <label for="brief-spread-rate">Spread rate ($/day)</label>
+        <input id="brief-spread-rate" type="number" min="1" step="1" placeholder="default">
+      </div>
+    </div>
+    <button type="submit" class="primary">Build brief</button>
+  </form>
+
+  <p id="brief-status" class="status-line" role="status" aria-live="polite"></p>
+
+  <section id="brief-result" class="result" hidden>
+    <div class="badge-row">
+      <span id="brief-verify-badge" class="badge" data-state="verified"></span>
+      <div class="downloads no-print">
+        <a id="brief-download-md" class="button-link secondary" aria-disabled="true" tabindex="-1">
+          Download Markdown</a>
+        <a id="brief-download-json" class="button-link secondary" aria-disabled="true" tabindex="-1">
+          Download JSON</a>
+      </div>
+    </div>
+
+    <h3 id="brief-heading"></h3>
+    <p id="brief-totals" class="totals-line"></p>
+    <p id="brief-background" class="background-line" hidden></p>
+
+    <div class="table-scroll">
+      <table class="risk-table">
+        <caption class="visually-hidden">Offset-well risk register</caption>
+        <thead>
+          <tr>
+            <th scope="col">Risk</th>
+            <th scope="col">Applies</th>
+            <th scope="col" class="num">Wells</th>
+            <th scope="col" class="num">Prob.</th>
+            <th scope="col" class="num">Mean h</th>
+            <th scope="col" class="num">P90 h</th>
+            <th scope="col" class="num">Expected h</th>
+            <th scope="col" class="num">Expected $</th>
+            <th scope="col">Driver</th>
+          </tr>
+        </thead>
+        <tbody id="risk-table-body"></tbody>
+      </table>
+    </div>
+
+    <details class="detail-block">
+      <summary>Provenance</summary>
+      <dl id="brief-provenance" class="kv-list"></dl>
+    </details>
+
+    <p id="brief-disclaimer" class="disclaimer"></p>
+  </section>
+</section>
+
+<section id="panel-npt" role="tabpanel" aria-labelledby="tab-npt" tabindex="0" class="panel" hidden>
+  <h2 class="panel-title">NPT rollups</h2>
+  <p class="panel-lead">
+    Non-productive time from the ledger, rolled up by code and by well, at the configured spread rate.
+  </p>
+
+  <form id="npt-form" class="stack inline no-print">
+    <div class="field">
+      <label for="npt-field">Field</label>
+      <select id="npt-field">
+        <option value="">All fields</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="npt-since">Since</label>
+      <input id="npt-since" type="date">
+    </div>
+    <button type="submit" class="primary">Apply</button>
+  </form>
+
+  <p id="npt-status" class="status-line" role="status" aria-live="polite"></p>
+
+  <section id="npt-result" class="result" hidden>
+    <p id="npt-totals" class="totals-line"></p>
+
+    <h3>By code</h3>
+    <div id="npt-by-code" class="bar-list"></div>
+
+    <h3>By well</h3>
+    <div id="npt-by-well" class="bar-list"></div>
+  </section>
+</section>
+
 </main>
+
+<div id="doc-panel-backdrop" class="doc-panel-backdrop" hidden></div>
+<aside id="doc-panel" class="doc-panel" hidden aria-label="Source document" aria-hidden="true">
+  <div class="doc-panel-header">
+    <h2 id="doc-panel-title">Source</h2>
+    <button type="button" id="doc-panel-close" class="icon-button" aria-label="Close source panel">
+      Close</button>
+  </div>
+  <dl id="doc-panel-meta" class="kv-list"></dl>
+  <p id="doc-panel-page-note" class="doc-page-note" hidden></p>
+  <div id="doc-panel-body" class="doc-panel-body"></div>
+</aside>
+
 <script src="app.js"></script>
 </body>
 </html>

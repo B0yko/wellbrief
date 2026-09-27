@@ -3,8 +3,7 @@
 `wellbrief serve` starts a stdlib `http.server.ThreadingHTTPServer` bound to `--host`/`--port`
 (default `127.0.0.1:8765`) that serves two things on one origin: the JSON API under `/api/...`,
 and the static single-page UI (`web/index.html`, `web/app.js`, `web/app.css`, packaged inside the
-wheel next to this module) at every other path. This step ships the API and a minimal static
-placeholder; the real page is a later one.
+wheel next to this module) at every other path.
 
 Every JSON endpoint returns exactly the payload its CLI equivalent's `--json` output does --
 `Answer.to_dict()` for `ask` (`qa.ask` itself), `riskbrief.brief_json` for `brief`,
