@@ -1,0 +1,60 @@
+{
+ "metadata": {
+  "wellbrief_version": "0.1.0",
+  "date_utc": "2026-09-27T08:58:48Z",
+  "command": "wellbrief eval --ablation --out results/v0.1.0/ablation.json",
+  "suites": [
+   "extended"
+  ],
+  "seeds": [
+   20260731
+  ],
+  "options": {
+   "cases": "retrieval-precision"
+  },
+  "python": {
+   "version": "3.12.14",
+   "implementation": "CPython"
+  },
+  "hardware": {
+   "cpu": "Apple M5",
+   "ram_gb": 24.0,
+   "os": "macOS 26.6.2",
+   "arch": "arm64"
+  },
+  "git": {
+   "sha": "e00f4d57b3a111579f07660629479cc255782eb3",
+   "dirty": false
+  }
+ },
+ "modes": [
+  {
+   "mode": "bm25_only",
+   "label": "BM25 only",
+   "cases": 19,
+   "mean_p_at_8": 0.4342,
+   "mean_mrr_at_8": 0.7474
+  },
+  {
+   "mode": "hashing_only",
+   "label": "hashing only",
+   "cases": 19,
+   "mean_p_at_8": 0.4211,
+   "mean_mrr_at_8": 0.6491
+  },
+  {
+   "mode": "hybrid_unfiltered",
+   "label": "hybrid RRF (no planner filters)",
+   "cases": 19,
+   "mean_p_at_8": 0.4474,
+   "mean_mrr_at_8": 0.7105
+  },
+  {
+   "mode": "hybrid_filtered",
+   "label": "hybrid with planner filters (product default)",
+   "cases": 19,
+   "mean_p_at_8": 1.0,
+   "mean_mrr_at_8": 1.0
+  }
+ ]
+}

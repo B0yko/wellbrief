@@ -1,7 +1,7 @@
 {
  "metadata": {
   "wellbrief_version": "0.1.0",
-  "date_utc": "2026-09-27T08:35:55Z",
+  "date_utc": "2026-09-27T08:58:50Z",
   "command": "wellbrief eval --suite all --out results/v0.1.0/final-default-seed.json",
   "suites": [
    "original",
@@ -27,7 +27,7 @@
    "arch": "arm64"
   },
   "git": {
-   "sha": "b85649384fbfd455b3c236a775dc4580bef1688e",
+   "sha": "e00f4d57b3a111579f07660629479cc255782eb3",
    "dirty": false
   }
  },
@@ -40,7 +40,12 @@
    "passed": 17,
    "gated": 17,
    "gated_passed": 17,
-   "informational": 0
+   "informational": 0,
+   "citations": {
+    "checked": 312,
+    "verbatim_and_resolving": 312,
+    "percent": 100.0
+   }
   },
   {
    "suite": "extended",
@@ -53,7 +58,12 @@
    "retrieval_cases": 19,
    "retrieval_unscored": 0,
    "mean_p_at_8": 1.0,
-   "mean_mrr_at_8": 1.0
+   "mean_mrr_at_8": 1.0,
+   "citations": {
+    "checked": 630,
+    "verbatim_and_resolving": 630,
+    "percent": 100.0
+   }
   },
   {
    "suite": "brief-precision",
@@ -62,7 +72,12 @@
    "passed": 3,
    "gated": 3,
    "gated_passed": 3,
-   "informational": 0
+   "informational": 0,
+   "citations": {
+    "checked": 45,
+    "verbatim_and_resolving": 45,
+    "percent": 100.0
+   }
   },
   {
    "suite": "verifier-faults",
