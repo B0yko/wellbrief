@@ -26,7 +26,12 @@ command a network-disabled run proves against. `serve` (see `server.py`)
 runs the same workspace's `ask`/`brief`/`npt`/`status` behind a local JSON
 API and a static single-page UI, built from the same functions this module
 calls, so its JSON output matches `--json` here; it also appends to the same
-`audit.jsonl` for `ask` and `brief`.
+`audit.jsonl` for `ask` and `brief`. `demo` (see `demo.py`) is `corpus
+generate` + `ingest` + `index` + `serve` as one command, always against a
+workspace named `demo`: it generates the synthetic corpus, ingests and
+indexes it (reusing an already-matching workspace instead, unless
+`--rebuild`), starts the same server `serve` does, and opens a browser on
+it unless `--no-browser`.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ import argparse
 import json
 import os
 import sys
+import webbrowser
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict
@@ -47,6 +53,7 @@ from . import (
     analytics,
     audit,
     corpus,
+    demo as demo_mod,
     egress,
     ingest as ingest_mod,
     netguard,
@@ -531,6 +538,42 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    ws = Workspace.resolve(demo_mod.WORKSPACE_NAME)
+    try:
+        build = demo_mod.prepare(ws, seed=args.seed, formats=args.formats, rebuild=args.rebuild)
+    except OSError as exc:
+        print(f"wellbrief demo: {exc}", file=sys.stderr)
+        return 2
+    store = ws.open_store()
+    narrator, exit_code = _build_narrator("demo", args.narrator, ws, store)
+    store.close()
+    if narrator is None:
+        return exit_code if exit_code is not None else 2
+    try:
+        httpd = server_mod.create_server(ws, narrator, args.host, args.port)
+    except OSError as exc:
+        print(f"wellbrief demo: {exc}", file=sys.stderr)
+        return 2
+    url = f"http://{httpd.server_name}:{httpd.server_port}/"
+    action = "reused the" if build.reused else "built a fresh"
+    print(f"wellbrief demo: {action} workspace 'demo' in {build.seconds:.2f}s "
+          f"(seed {build.seed}, {build.formats} format, {build.documents} documents across "
+          f"{len(build.fields)} field(s)); narrator '{narrator.name}', listening on {url}")
+    if not args.no_browser:
+        try:
+            webbrowser.open(url)
+        except (webbrowser.Error, OSError) as exc:
+            print(f"wellbrief demo: could not open a browser: {exc}", file=sys.stderr)
+    try:
+        httpd.serve_forever(poll_interval=0.2)
+    except KeyboardInterrupt:
+        print()
+    finally:
+        httpd.server_close()
+    return 0
+
+
 # --------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -655,6 +698,21 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, default=server_mod.DEFAULT_PORT,
                     help=f"bind port (default {server_mod.DEFAULT_PORT})")
     sp.set_defaults(func=cmd_serve)
+
+    sp = sub.add_parser("demo", help="generate a demo corpus, ingest it, and open the web UI")
+    sp.add_argument("--no-browser", action="store_true", help="do not open a web browser")
+    sp.add_argument("--host", default=server_mod.DEFAULT_HOST,
+                    help=f"bind address (default {server_mod.DEFAULT_HOST})")
+    sp.add_argument("--port", type=int, default=server_mod.DEFAULT_PORT,
+                    help=f"bind port (default {server_mod.DEFAULT_PORT})")
+    sp.add_argument("--rebuild", action="store_true",
+                    help="regenerate the demo corpus and rebuild the workspace even if an "
+                         "existing one already matches this seed and format")
+    sp.add_argument("--formats", choices=["mixed", "txt"], default="mixed",
+                    help="mixed (default): daily reports as .txt, end-of-well reports as .pdf, "
+                         "incident reports as .docx; txt: every document as .txt")
+    sp.add_argument("--seed", type=int, default=corpus.SEED, help=f"corpus seed (default {corpus.SEED})")
+    sp.set_defaults(func=cmd_demo)
     return p
 
 
