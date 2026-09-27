@@ -4,15 +4,18 @@ Every command needs no network access. `corpus generate` writes the
 synthetic corpus and its ground truth to a directory; `ingest` loads a folder
 of well files into a workspace's store; every other command works on that
 workspace's store and its per-field index files (see `workspace.py`).
-`--json` switches status, ask, npt, patterns, digest, eval, corpus generate
-and index to machine-readable output; `brief` has its own
-`--format text|md|json` instead.
+`--json` is a per-command flag on `ingest`, `index`, `status`, `ask`, `npt`,
+`patterns`, `corpus generate` and `eval`, switching that command's output to
+machine-readable JSON; `brief` has its own `--format text|md|json` instead.
+Every `ask` and `brief` also appends one line to the workspace's
+`audit.jsonl` (see `audit.py`).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from collections.abc import Callable
@@ -21,8 +24,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import __version__, analytics, corpus, ingest as ingest_mod, riskbrief, workspace as workspace_mod
-from .config import EMBED_BACKEND, LLM_BACKEND
+from . import (
+    __version__,
+    analytics,
+    audit,
+    corpus,
+    ingest as ingest_mod,
+    riskbrief,
+    workspace as workspace_mod,
+)
 from .corpus import MAX_SCALE, SEED
 from .embed import get_embedder
 from .evals.cases import SUITES as EVAL_SUITES
@@ -32,6 +42,14 @@ from .search import Searcher
 from .settings import Settings, SettingsError, resolve_settings
 from .store import Store
 from .workspace import FieldIndex, Workspace
+
+NARRATORS = ("offline", "llm")
+
+
+def _default_narrator() -> str:
+    """`WELLBRIEF_NARRATOR`, else `"offline"`. Read fresh on every call (not cached at
+    import time) so a test or a caller can change the environment between invocations."""
+    return os.environ.get("WELLBRIEF_NARRATOR", "offline")
 
 
 def _workspace(args: argparse.Namespace) -> Workspace:
@@ -57,9 +75,8 @@ def _wire(args: argparse.Namespace) -> tuple[Workspace, Store, Searcher, Setting
     ws = _workspace(args)
     store = ws.open_store()
     st = _settings(ws, args)
-    indexes = workspace_mod.ensure_field_indexes(ws, store, args.embed_backend, st.retrieval.k1,
-                                                 st.retrieval.b)
-    searcher = Searcher(store, indexes, get_embedder(args.embed_backend), rrf_k=st.retrieval.rrf_k)
+    indexes = workspace_mod.ensure_field_indexes(ws, store, bm25_k1=st.retrieval.k1, bm25_b=st.retrieval.b)
+    searcher = Searcher(store, indexes, get_embedder(), rrf_k=st.retrieval.rrf_k)
     return ws, store, searcher, st
 
 
@@ -73,6 +90,17 @@ def _emit(payload: Any, as_json: bool, text: str = "") -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(text)
+
+
+def _reject_unsupported_narrator(command: str, narrator: str) -> int | None:
+    """`None` when the narrator is available; otherwise the exit code the caller should
+    return, having already printed why. Only `offline` is implemented so far -- `llm` (or
+    anything else `WELLBRIEF_NARRATOR` might hold) is a recognised choice on the CLI, not yet
+    a working one."""
+    if narrator == "offline":
+        return None
+    print(f"wellbrief {command}: narrator {narrator!r} is not available yet", file=sys.stderr)
+    return 2
 
 
 # --------------------------------------------------------------------------
@@ -117,8 +145,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         st = resolve_settings(workspace_root=ws.root, ingest_config_path=args.config,
                               ingest_folder=args.path)
         workspace_mod.check_field_slugs(store.field_names())
-        built = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend, st.retrieval.k1,
-                                                    st.retrieval.b)
+        built = [workspace_mod.rebuild_field_index(ws, store, f, bm25_k1=st.retrieval.k1,
+                                                    bm25_b=st.retrieval.b)
                 for f in sorted(coverage.fields)]
         if built:
             lines.append("Indexed: " + "; ".join(
@@ -141,8 +169,8 @@ def cmd_index(args: argparse.Namespace) -> int:
         store.close()
         return 2
     fields = [args.field] if args.field else known
-    built: list[FieldIndex] = [workspace_mod.rebuild_field_index(ws, store, f, args.embed_backend,
-                                                                 st.retrieval.k1, st.retrieval.b)
+    built: list[FieldIndex] = [workspace_mod.rebuild_field_index(ws, store, f, bm25_k1=st.retrieval.k1,
+                                                                 bm25_b=st.retrieval.b)
                                for f in fields]
     payload = {
         "workspace": ws.name,
@@ -204,8 +232,11 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    _, store, searcher, st = _wire(args)
-    narrator = get_narrator(args.llm_backend)
+    exit_code = _reject_unsupported_narrator("ask", args.narrator)
+    if exit_code is not None:
+        return exit_code
+    ws, store, searcher, st = _wire(args)
+    narrator = get_narrator(args.narrator)
     answer = ask_qa(args.question, store, searcher, narrator=narrator,
                     top_k=st.retrieval.top_k, spread_rate=st.spread_rate_usd_per_day,
                     keywords=st.taxonomy.keywords)
@@ -222,13 +253,30 @@ def cmd_ask(args: argparse.Namespace) -> int:
                   "(all listed under figure_sources in --json)")
         for w in answer.citation_warnings:
             print(f"[warning]    {w}", file=sys.stderr)
+
+    fields = list(answer.query_plan.get("fields") or [])
+    corpus_hash = store.corpus_hash(fields[0]) if len(fields) == 1 else store.corpus_hash()
+    audit.log_ask(
+        ws.audit_path,
+        question=args.question,
+        fields=fields,
+        corpus_hash=corpus_hash,
+        narrator=answer.narrator,
+        cited_document_ids=list(dict.fromkeys(c.doc_id for c in answer.citations)),
+        verification_ok=not answer.citation_warnings,
+        verification_reasons=len(answer.citation_warnings),
+        abstained=answer.abstained,
+    )
     store.close()
     return 0
 
 
 def cmd_brief(args: argparse.Namespace) -> int:
+    exit_code = _reject_unsupported_narrator("brief", args.narrator)
+    if exit_code is not None:
+        return exit_code
     ws, store, _, st = _wire(args)
-    narrator = get_narrator(args.llm_backend)
+    narrator = get_narrator(args.narrator)
     risk_thresholds = asdict(st.risk)
     find_patterns_thresholds = {k: v for k, v in risk_thresholds.items() if k != "max_risks"}
     verification_placeholder: dict[str, Any] = {}
@@ -249,6 +297,22 @@ def cmd_brief(args: argparse.Namespace) -> int:
         return 3
     check = riskbrief.verify_brief(brief, store)
     verification_placeholder.update(check)   # the provenance block carries the same dict
+
+    audit.log_brief(
+        ws.audit_path,
+        parameters={
+            "field": args.field, "well": args.well, "td_m": args.td,
+            "rig": args.rig, "mwd": args.mwd,
+            "spread_rate_usd_per_day": st.spread_rate_usd_per_day,
+            "format": args.format,
+        },
+        corpus_hash=provenance["corpus_hash"],
+        narrator=provenance["narrator"],
+        cited_document_ids=list(dict.fromkeys(
+            c.doc_id for r in brief.risks for c in r.citations)),
+        verification_ok=check["ok"],
+        verification_reasons=len(check["problems"]),
+    )
 
     for p in check["problems"][:5]:
         print(f"[warning] {p}", file=sys.stderr)
@@ -284,18 +348,22 @@ def cmd_npt(args: argparse.Namespace) -> int:
     ws = _workspace(args)
     store = ws.open_store()
     st = _settings(ws, args)
-    filters = {}
+    filters: dict[str, Any] = {}
     if args.field:
         filters["field_name"] = args.field
     if args.code:
         filters["code"] = args.code
     if args.well:
         filters["well"] = args.well
+    if args.since:
+        filters["since"] = args.since
     roll = analytics.rollup(store.npt(**filters), st.spread_rate_usd_per_day)
+    payload = {"since": args.since, **roll} if args.since else roll
     if args.json:
-        print(json.dumps(roll, indent=2, ensure_ascii=False))
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print(f"{roll['event_count']} events, {roll['well_count']} wells, "
+        header = f"NPT since {args.since}: " if args.since else ""
+        print(f"{header}{roll['event_count']} events, {roll['well_count']} wells, "
               f"{roll['total_hours']:,.1f} h NPT, ${roll['total_cost_usd']:,.0f}")
         print(f"avoidable: {roll['avoidable_hours']:,.1f} h "
               f"({roll['avoidable_share'] * 100:.0f} %), ${roll['avoidable_cost_usd']:,.0f}")
@@ -328,24 +396,6 @@ def cmd_patterns(args: argparse.Namespace) -> int:
             if p.driver:
                 print(f"  driver: {p.driver}")
             print()
-    store.close()
-    return 0
-
-
-def cmd_digest(args: argparse.Namespace) -> int:
-    ws = _workspace(args)
-    store = ws.open_store()
-    st = _settings(ws, args)
-    payload = analytics.digest(store, args.since, st.spread_rate_usd_per_day)
-    if args.json:
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
-    else:
-        s = payload["summary"]
-        print(f"NPT since {payload['since']}: {s['npt_hours']:,.1f} h across {s['wells']} wells, "
-              f"${s['npt_cost_usd']:,.0f}, {s['avoidable_share'] * 100:.0f} % avoidable")
-        for e in payload["biggest_events"]:
-            print(f"  {e['date']}  {e['well']:<10}{e['code']:<24}{e['hours']:>6.1f} h  "
-                  f"{e['description'][:70]}")
     store.close()
     return 0
 
@@ -430,21 +480,23 @@ def cmd_eval(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="wellbrief",
-        description="Offline retrieval and NPT analytics over drilling well files.",
+        description="Offline retrieval and NPT analytics over drilling well files: cited "
+                    "answers and pre-spud offset-well risk briefs, with no network access.",
     )
     p.add_argument("--version", action="version", version=__version__)
     p.add_argument("--workspace", default=None,
                    help="workspace name inside $WELLBRIEF_HOME (default: $WELLBRIEF_WORKSPACE or 'default')")
-    p.add_argument("--embed-backend", default=EMBED_BACKEND, choices=["offline"])
-    p.add_argument("--llm-backend", default=LLM_BACKEND, choices=["offline"])
+    p.add_argument("--narrator", choices=NARRATORS, default=_default_narrator(),
+                   help="narrator that phrases `ask` and `brief` answers (default: "
+                        "$WELLBRIEF_NARRATOR, else 'offline'; 'llm' is a recognised choice "
+                        "that is not implemented yet)")
     p.add_argument("--spread-rate", type=float, default=None,
                    help="all-in spread rate in USD per day, used for every cost figure "
                         "(default: $WELLBRIEF_SPREAD_RATE_USD_PER_DAY, else 48000)")
-    p.add_argument("--json", action="store_true", help="machine readable output")
     sub = p.add_subparsers(dest="command", required=True)
 
     sp = sub.add_parser("ingest", help="load a directory of well files into the workspace")
-    sp.add_argument("path", type=Path)
+    sp.add_argument("path", type=Path, help="folder of .txt/.md/.pdf/.docx/.csv well files")
     sp.add_argument("--field", help="field for a document with no field detected in its own text "
                                     "(default: 'unassigned')")
     sp.add_argument("--config", type=Path,
@@ -454,19 +506,24 @@ def build_parser() -> argparse.ArgumentParser:
                     help="remove documents whose files are no longer in the folder")
     sp.add_argument("--dry-run", action="store_true",
                     help="print the coverage table without writing anything")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_ingest)
 
     sp = sub.add_parser("index", help="rebuild the per-field retrieval indexes")
     sp.add_argument("--field", help="rebuild only this field (default: every field in the workspace)")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_index)
 
-    sub.add_parser("status", help="what is loaded, and how fresh its indexes are").set_defaults(
-        func=cmd_status)
+    sp = sub.add_parser("status", help="what is loaded, and how fresh its indexes are")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.set_defaults(func=cmd_status)
 
     sp = sub.add_parser("ask", help="ask a question of the archive")
-    sp.add_argument("question")
+    sp.add_argument("question", help="the question, in plain English, e.g. "
+                                     "'what happened in the 12 1/4 inch section on Orrindale'")
     sp.add_argument("--top-k", type=int, default=None,
                     help="results to retrieve (default: [retrieval] top_k in wellbrief.toml, else 8)")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_ask)
 
     sp = sub.add_parser("brief", help="build an offset-well risk brief for a planned well")
@@ -478,37 +535,37 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--max-risks", type=int, default=None,
                     help="risks listed, ranked by expected cost (default: [risk] max_risks in "
                          "wellbrief.toml, else 8)")
-    sp.add_argument("--format", choices=["text", "md", "json"], default="text")
+    sp.add_argument("--format", choices=["text", "md", "json"], default="text",
+                    help="output rendering (default: text)")
     sp.add_argument("--out", type=Path, help="write the brief to this file instead of stdout")
     sp.set_defaults(func=cmd_brief)
 
-    sp = sub.add_parser("npt", help="non-productive time rollup")
-    sp.add_argument("--field")
-    sp.add_argument("--well")
-    sp.add_argument("--code")
+    sp = sub.add_parser("npt", help="non-productive time rollup, with cost")
+    sp.add_argument("--field", help="only this field")
+    sp.add_argument("--well", help="only this well")
+    sp.add_argument("--code", help="only this NPT code, e.g. STUCK_PIPE")
+    sp.add_argument("--since", help="only events on or after this date (ISO YYYY-MM-DD)")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_npt)
 
     sp = sub.add_parser("patterns", help="repeating problems in a field")
-    sp.add_argument("--field", required=True)
+    sp.add_argument("--field", required=True, help="field whose repeating problems to list, e.g. Orrindale")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_patterns)
 
-    sp = sub.add_parser("digest", help="summary of NPT since a date")
-    sp.add_argument("--since", required=True, help="ISO date")
-    sp.set_defaults(func=cmd_digest)
-
     sp = sub.add_parser("eval", help="run the evaluation suites on freshly generated corpora")
-    sp.add_argument("--suite", choices=[*EVAL_SUITES, "all"], default="all")
+    sp.add_argument("--suite", choices=[*EVAL_SUITES, "all"], default="all",
+                    help="which case suite to run (default: all)")
     sp.add_argument("--seeds", type=_seeds, default=[SEED],
                     help=f"comma-separated corpus seeds (default {SEED})")
-    sp.add_argument("--out", type=Path, help="write the results as JSON to this file")
+    sp.add_argument("--out", type=Path, help="also write the full results as JSON to this file")
     sp.add_argument("--no-risk-filters", action="store_true",
                     help="brief precision cases: build the briefs without the risk filters (min_lift 0, "
                          "unavoidable codes included) and report them without a score; "
                          "other briefs keep them")
     sp.add_argument("--ablation", action="store_true", help="retrieval ablation (not supported yet)")
-    sp.add_argument("--narrator", choices=["offline", "llm"], default="offline",
-                    help="narrator for answers and briefs (only offline is supported yet)")
     sp.add_argument("--repeats", type=int, default=1, help="repeats per case (not supported yet)")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_eval)
 
     sp = sub.add_parser("corpus", help="synthetic well-file corpus")
@@ -525,6 +582,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "as .txt, end-of-well reports as .pdf, incident reports as .docx")
     gp.add_argument("--ledger-csv", action="store_true",
                     help="also write npt-ledger.csv with every DDR NPT row")
+    gp.add_argument("--json", action="store_true", help="machine-readable output")
     gp.set_defaults(func=cmd_corpus_generate)
     return p
 

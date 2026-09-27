@@ -983,8 +983,8 @@ def test_manifest_hash_does_not_depend_on_the_process(tmp_path: Path) -> None:
     for hash_seed in ("1", "2"):
         env = {**os.environ, "PYTHONHASHSEED": hash_seed}
         out = subprocess.run(
-            [sys.executable, "-m", "wellbrief", "--json", "corpus", "generate",
-             "--out", str(tmp_path / hash_seed)],
+            [sys.executable, "-m", "wellbrief", "corpus", "generate",
+             "--out", str(tmp_path / hash_seed), "--json"],
             check=True, capture_output=True, text=True, env=env, cwd=tmp_path,
         )
         hashes.append(json.loads(out.stdout)["manifest_hash"])

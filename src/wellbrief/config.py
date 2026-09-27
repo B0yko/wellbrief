@@ -267,7 +267,7 @@ CHUNK_MAX_CHARS = 1_500
 # Backends
 # --------------------------------------------------------------------------
 # `offline` needs no network and no model download. It is the default and, in
-# this version, the only backend for both embeddings and narration.
+# this version, the only embedder. The narrator is chosen separately, with
+# the CLI's global `--narrator` flag or `WELLBRIEF_NARRATOR` (see `cli.py`).
 
 EMBED_BACKEND = os.environ.get("WELLBRIEF_EMBED_BACKEND", "offline")
-LLM_BACKEND = os.environ.get("WELLBRIEF_LLM_BACKEND", "offline")

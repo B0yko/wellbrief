@@ -66,7 +66,7 @@ def test_ingest_status_ask_brief_end_to_end(
         assert (field_dir / "vectors.f32").exists()
         assert (field_dir / "manifest.json").exists()
 
-    assert cli.main(["--json", "status"]) == 0
+    assert cli.main(["status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["workspace"] == "default"
     assert status["network_mode"] == "offline"
@@ -78,11 +78,11 @@ def test_ingest_status_ask_brief_end_to_end(
     assert fields["Orrindale"]["index_stale"] is False
     assert fields["Orrindale"]["embedder"] == "offline"
 
-    assert cli.main(["--json", "index", "--field", "Orrindale"]) == 0
+    assert cli.main(["index", "--field", "Orrindale", "--json"]) == 0
     reindexed = json.loads(capsys.readouterr().out)
     assert reindexed["fields"][0]["field"] == "Orrindale"
 
-    assert cli.main(["--json", "ask", "What happened in the 12 1/4 inch section on Orrindale"]) == 0
+    assert cli.main(["ask", "What happened in the 12 1/4 inch section on Orrindale", "--json"]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["abstained"] is False
     assert answer["citations"]
@@ -133,7 +133,7 @@ def test_ingest_dry_run_writes_nothing(home: Path, corpus_dir: Path,
     assert cli.main(["ingest", str(corpus_dir), "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Would ingest" in out
-    assert cli.main(["--json", "status"]) == 0
+    assert cli.main(["status", "--json"]) == 0
     status = json.loads(capsys.readouterr().out)
     assert status["fields"] == []
 
@@ -219,7 +219,7 @@ def test_ingest_examples_alt_template_finds_its_own_wellbrief_toml(
     assert "4 file(s) seen, 4 ingested" in out
     assert "NPT events: 3" in out
 
-    assert cli.main(["--json", "npt", "--field", "Marrow Deep"]) == 0
+    assert cli.main(["npt", "--field", "Marrow Deep", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["event_count"] == 3
     assert {row["code"] for row in payload["by_code"]} == {"STUCK_PIPE"}
@@ -241,8 +241,8 @@ def test_ask_finds_mitigations_on_a_field_ingested_with_its_own_toml(
     capsys.readouterr()
 
     assert not (home / "default" / "wellbrief.toml").exists()
-    assert cli.main(["--json", "ask",
-                     "What went wrong with stuck pipe on MRD-201 in the Marrow Deep field?"]) == 0
+    assert cli.main(["ask", "What went wrong with stuck pipe on MRD-201 in the Marrow Deep field?",
+                     "--json"]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["mitigations"], "expected at least one mitigation quoted from the alt template"
     assert any("Hold at least" in m["text"] for m in answer["mitigations"])
@@ -282,11 +282,11 @@ def test_spread_rate_env_var_is_used_when_no_flag_is_given(
     capsys.readouterr()
 
     monkeypatch.setenv("WELLBRIEF_SPREAD_RATE_USD_PER_DAY", "60000")
-    assert cli.main(["--json", "npt"]) == 0
+    assert cli.main(["npt", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["spread_rate_usd_per_day"] == 60000.0
 
     # an explicit --spread-rate still wins over the environment variable
-    assert cli.main(["--json", "--spread-rate", "12000", "npt"]) == 0
+    assert cli.main(["--spread-rate", "12000", "npt", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["spread_rate_usd_per_day"] == 12000.0

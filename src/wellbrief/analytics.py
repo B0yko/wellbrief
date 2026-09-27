@@ -686,29 +686,3 @@ def _categorical_rate(store: Store, pattern: Pattern, getter,
              "baseline_rate": round(rest_mean, 3), "wells": totals[worst]},
         )
     return None
-
-
-def digest(store: Store, since: str, spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_DAY) -> dict[str, Any]:
-    """Summary of NPT since a date: totals, the top codes and the largest events."""
-    events = store.npt(since=since)
-    roll = rollup(events, spread_rate)
-    biggest = sorted(events, key=lambda e: -e.hours)[:5]
-    return {
-        "since": since,
-        "summary": {
-            "events": roll["event_count"],
-            "wells": roll["well_count"],
-            "npt_hours": roll["total_hours"],
-            "npt_cost_usd": roll["total_cost_usd"],
-            "avoidable_share": roll["avoidable_share"],
-        },
-        "by_code": roll["by_code"][:5],
-        "biggest_events": [
-            {
-                "doc_id": e.doc_id, "well": e.well, "date": e.date, "code": e.code,
-                "hours": e.hours, "formation": e.formation, "hole_section": e.hole_section,
-                "description": e.description[:220],
-            }
-            for e in biggest
-        ],
-    }

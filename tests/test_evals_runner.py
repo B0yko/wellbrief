@@ -136,7 +136,7 @@ def test_no_risk_filters_reaches_brief_precision_only(tmp_path: Path,
 def test_cli_rejects_options_that_are_not_wired_yet(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["eval", "--ablation"]) == 2
     assert "not supported yet" in capsys.readouterr().err
-    assert cli.main(["eval", "--narrator", "llm"]) == 2
+    assert cli.main(["--narrator", "llm", "eval"]) == 2
     assert cli.main(["eval", "--repeats", "3"]) == 2
     with pytest.raises(SystemExit):
         cli.main(["eval", "--seeds", "seven"])
