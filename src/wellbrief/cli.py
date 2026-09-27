@@ -31,7 +31,10 @@ generate` + `ingest` + `index` + `serve` as one command, always against a
 workspace named `demo`: it generates the synthetic corpus, ingests and
 indexes it (reusing an already-matching workspace instead, unless
 `--rebuild`), starts the same server `serve` does, and opens a browser on
-it unless `--no-browser`.
+it unless `--no-browser`. `bench` (see `bench.py`) times corpus generation,
+ingest, index build and reload, `ask`/`brief` latency and peak memory, each
+against a corpus this process generates and discards on its own; `--scale`
+runs it at more than one corpus size.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from . import (
     __version__,
     analytics,
     audit,
+    bench as bench_mod,
     corpus,
     demo as demo_mod,
     egress,
@@ -463,6 +467,19 @@ def _seeds(raw: str) -> list[int]:
     return seeds
 
 
+def _scales(raw: str) -> list[int]:
+    try:
+        scales = [int(s) for s in raw.split(",") if s.strip()]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"scales must be comma-separated integers, not {raw!r}") from None
+    if not scales:
+        raise argparse.ArgumentTypeError("give at least one scale")
+    out_of_range = [s for s in scales if not 1 <= s <= MAX_SCALE]
+    if out_of_range:
+        raise argparse.ArgumentTypeError(f"scale must be between 1 and {MAX_SCALE}, not {out_of_range[0]}")
+    return scales
+
+
 def cmd_eval(args: argparse.Namespace) -> int:
     from .evals import ablation, cases, results, runner
 
@@ -509,6 +526,23 @@ def cmd_eval(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(results.scrub(payload), indent=2, ensure_ascii=False))
     return 0 if report.ok else 1
+
+
+def cmd_bench(args: argparse.Namespace) -> int:
+    from .evals import results
+
+    emit = (lambda line: None) if args.json else print
+    try:
+        payload = bench_mod.run(args.scale, args.argv, repeats=args.repeats, emit=emit)
+    except (TimeoutError, RuntimeError, ValueError, OSError) as exc:
+        print(f"wellbrief bench: {exc}", file=sys.stderr)
+        return 2
+    if args.out:
+        results.write(payload, args.out)
+        emit(f"results written to {args.out}")
+    if args.json:
+        print(json.dumps(results.scrub(payload), indent=2, ensure_ascii=False))
+    return 0
 
 
 def cmd_selfcheck(args: argparse.Namespace) -> int:
@@ -704,6 +738,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also write npt-ledger.csv with every DDR NPT row")
     gp.add_argument("--json", action="store_true", help="machine-readable output")
     gp.set_defaults(func=cmd_corpus_generate)
+
+    sp = sub.add_parser("bench", help="performance measurements: corpus generation, ingest, index "
+                                      "build and size, cold-start load, ask/brief latency, peak RSS")
+    sp.add_argument("--scale", type=_scales, default=[1],
+                    help=f"comma-separated corpus scales to measure, 1 to {MAX_SCALE} (default 1)")
+    sp.add_argument("--repeats", type=int, default=bench_mod.WARM_REPEATS,
+                    help=f"warm, timed repeats per ask/brief question (default {bench_mod.WARM_REPEATS})")
+    sp.add_argument("--out", type=Path, help="also write the full results as JSON to this file")
+    sp.add_argument("--json", action="store_true", help="machine-readable output")
+    sp.set_defaults(func=cmd_bench)
 
     sp = sub.add_parser("selfcheck", help="offline end-to-end check plus a network-guard positive control")
     sp.set_defaults(func=cmd_selfcheck)
