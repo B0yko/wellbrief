@@ -120,7 +120,7 @@ def _file_records(docs: list[Document]) -> list[FileRecord]:
 
 def _wells_from_docs(docs: list[Document]) -> list[Well]:
     """Rebuild a well register from the documents when no master well list is supplied."""
-    by_well: dict[str, dict] = {}
+    by_well: dict[str, dict[str, Any]] = {}
     for d in docs:
         entry = by_well.setdefault(d.well, {
             "field": d.field_name, "rig": "", "spud": d.date, "td": 0.0,

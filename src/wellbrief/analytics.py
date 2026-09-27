@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field as dc_field
 from typing import Any
 
@@ -35,7 +35,7 @@ from .config import (
     RISK_MIN_WELLS,
     hours_to_usd,
 )
-from .models import NptEvent
+from .models import Document, NptEvent
 from .store import Store
 
 # An overlap above this share of an interval pattern's own events with a
@@ -72,7 +72,7 @@ def rollup(events: Iterable[NptEvent],
     total = sum(e.hours for e in events)
     avoidable = sum(e.hours for e in events if e.code in AVOIDABLE_CODES)
 
-    def group(key) -> list[dict[str, Any]]:
+    def group(key: Callable[[NptEvent], str]) -> list[dict[str, Any]]:
         acc: dict[str, list[float]] = defaultdict(list)
         for e in events:
             acc[key(e)].append(e.hours)
@@ -713,7 +713,7 @@ def explain_driver(store: Store, pattern: Pattern) -> tuple[str, dict[str, Any]]
     return "", {}
 
 
-def _categorical_rate(store: Store, pattern: Pattern, getter,
+def _categorical_rate(store: Store, pattern: Pattern, getter: Callable[[Document], str],
                       label: str) -> tuple[str, dict[str, Any]] | None:
     """Report a category whose hit rate is at least twice the rest."""
     well_cat: dict[str, str] = {}

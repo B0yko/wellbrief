@@ -43,8 +43,8 @@ class HashingEmbedder(Embedder):
         self.dim = dim
         self.ngrams = ngrams
 
-    def _features(self, text: str) -> Counter:
-        feats: Counter = Counter()
+    def _features(self, text: str) -> Counter[str]:
+        feats: Counter[str] = Counter()
         for word in _WORD.findall(normalise(text).lower()):
             if word in STOPWORDS or len(word) < 2:
                 continue
