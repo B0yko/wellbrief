@@ -297,6 +297,17 @@ main {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* The 200px flex-basis below is a *width*: it only makes sense on the cross axis of a
+   row-direction container (`.field-row`, or `.stack.inline` as `npt-form` uses). A `.field`
+   that sits directly in a column `.stack` (every lone field in `ask-form` and `brief-form`)
+   must never receive it: a flex-basis is read along the container's main axis, so inside a
+   column stack that same 200px is asked of the field's *height*, stretching it well past its
+   label-plus-control content and opening a large empty gap before the next row. `:where()`
+   keeps this selector's specificity at one class, same as a bare `.field`, so `.field-narrow`
+   below still overrides it in the row contexts where both classes meet on one element. */
+:where(.field-row, .stack.inline) > .field {
   flex: 1 1 200px;
 }
 

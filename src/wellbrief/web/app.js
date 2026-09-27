@@ -152,10 +152,23 @@
     if (!quote) {
       return null;
     }
-    var direct = text.indexOf(quote);
+    // A daily report's NPT description sometimes appears twice: once inside the plain-text
+    // operations log, and again as the value of its own NPT DETAIL entry's "Description" line --
+    // the line the citation was actually quoted from (the server anchors its own search there
+    // too, at or after the NPT DETAIL heading, for the same reason: quotes.evidence_quote). When
+    // both exist, the NPT DETAIL occurrence wins; a document with only one occurrence, or no NPT
+    // DETAIL section at all (every non-DDR document), falls back to the first match exactly as
+    // before.
+    var detailAt = text.indexOf("NPT DETAIL");
+
+    var direct = detailAt !== -1 ? text.indexOf(quote, detailAt) : -1;
+    if (direct === -1) {
+      direct = text.indexOf(quote);
+    }
     if (direct !== -1) {
       return [direct, direct + quote.length];
     }
+
     var words = quote
       .trim()
       .split(/\s+/)
@@ -172,7 +185,11 @@
     } catch (err) {
       return null;
     }
-    var match = pattern.exec(text);
+    var match = detailAt !== -1 ? pattern.exec(text.slice(detailAt)) : null;
+    if (match) {
+      return [detailAt + match.index, detailAt + match.index + match[0].length];
+    }
+    match = pattern.exec(text);
     return match ? [match.index, match.index + match[0].length] : null;
   }
 
@@ -363,24 +380,51 @@
   // Ask
   // ---------------------------------------------------------------------
 
-  var EXAMPLE_TEMPLATES = [
+  // Every builder reads only the `example_topics` the server already computed from that one
+  // field's own ledger (`analytics.example_topics`, `GET /api/status`); none of them names a
+  // field, code, section or formation of its own, so a differently ingested workspace gets its
+  // own examples with no change here. A builder returns null when the field's own data cannot
+  // fill it in (an empty ledger, or no avoidable code for it), and `renderExamples` skips it.
+  var ASK_EXAMPLE_BUILDERS = [
     function (field) {
-      return field + " field. What non-productive time has this field recorded?";
+      return "What non-productive time was recorded on " + field + "?";
+    },
+    function (field, topics) {
+      if (!topics.top_avoidable_code_label || !topics.top_section_for_code) {
+        return null;
+      }
+      return topics.top_avoidable_code_label + " in the " + topics.top_section_for_code +
+        " section on " + field;
+    },
+    function (field, topics) {
+      if (!topics.top_formation) {
+        return null;
+      }
+      return "What do the end-of-well reports recommend for " + topics.top_formation + "?";
     },
     function (field) {
-      return field + " field. What lessons were learned on these wells?";
-    },
-    function (field) {
-      return field + " field. What is the largest driver of non-productive time?";
+      return "What is the largest driver of non-productive time on " + field + "?";
     },
   ];
 
-  function renderExamples(fields) {
+  function renderExamples(fields, fieldRows) {
     var container = $("ask-examples");
     clear(container);
-    fields.forEach(function (field, index) {
-      var template = EXAMPLE_TEMPLATES[index % EXAMPLE_TEMPLATES.length];
-      var question = template(field);
+    var topicsByField = {};
+    (fieldRows || []).forEach(function (row) {
+      topicsByField[row.field] = row.example_topics || {};
+    });
+    var questions = [];
+    var seen = {};
+    for (var i = 0; i < ASK_EXAMPLE_BUILDERS.length && fields.length; i++) {
+      var field = fields[i % fields.length];
+      var question = ASK_EXAMPLE_BUILDERS[i](field, topicsByField[field] || {});
+      if (question && !seen[question]) {
+        seen[question] = true;
+        questions.push(question);
+      }
+    }
+    questions.forEach(function (question) {
       var chip = document.createElement("button");
       chip.type = "button";
       chip.className = "chip";
@@ -397,7 +441,7 @@
   function runAsk() {
     var question = $("ask-question").value.trim();
     if (!question) {
-      return;
+      return null;
     }
     var field = $("ask-field").value;
     var topKRaw = $("ask-top-k").value;
@@ -411,14 +455,49 @@
     }
     setStatus($("ask-status"), "Asking...", false);
     $("ask-result").hidden = true;
-    api("/api/ask", { method: "POST", body: body })
+    return api("/api/ask", { method: "POST", body: body })
       .then(function (answer) {
         setStatus($("ask-status"), "", false);
         renderAnswer(answer);
+        writeHash("ask", askHashParams(question, field));
+        return answer;
       })
       .catch(function (err) {
         setStatus($("ask-status"), err.message, true);
+        return null;
       });
+  }
+
+  // A mitigation group is `{heading, mitigations}`; `qa._mitigations_for` never puts an
+  // end-of-well-report sentence and an incident's corrective action under one heading (they
+  // carry a different truth claim), so this renders each group as its own labelled list rather
+  // than one flat one under a single fixed title.
+  function renderMitigationGroups(container, groups) {
+    clear(container);
+    groups = groups || [];
+    groups.forEach(function (group) {
+      var heading = document.createElement("h3");
+      heading.textContent = group.heading;
+      container.appendChild(heading);
+      var list = document.createElement("ul");
+      list.className = "mitigation-list";
+      (group.mitigations || []).forEach(function (mitigation) {
+        var li = document.createElement("li");
+        var quote = document.createElement("p");
+        quote.className = "mitigation-quote";
+        quote.textContent = mitigation.text;
+        li.appendChild(quote);
+        var chips = document.createElement("div");
+        chips.className = "chip-row";
+        renderCitationChips(chips, [
+          { doc_id: mitigation.doc_id, well: mitigation.well, quote: mitigation.text },
+        ]);
+        li.appendChild(chips);
+        list.appendChild(li);
+      });
+      container.appendChild(list);
+    });
+    container.hidden = groups.length === 0;
   }
 
   function renderAnswer(answer) {
@@ -454,28 +533,7 @@
     setText($("ask-answer-text"), answer.text);
     renderCitationChips($("ask-citations"), answer.citations, "No citations.");
 
-    var mitigationsSection = $("ask-mitigations-section");
-    var mitigationsList = $("ask-mitigations-list");
-    clear(mitigationsList);
-    if (answer.mitigations && answer.mitigations.length) {
-      answer.mitigations.forEach(function (mitigation) {
-        var li = document.createElement("li");
-        var quote = document.createElement("p");
-        quote.className = "mitigation-quote";
-        quote.textContent = mitigation.text;
-        li.appendChild(quote);
-        var chips = document.createElement("div");
-        chips.className = "chip-row";
-        renderCitationChips(chips, [
-          { doc_id: mitigation.doc_id, well: mitigation.well, quote: mitigation.text },
-        ]);
-        li.appendChild(chips);
-        mitigationsList.appendChild(li);
-      });
-      mitigationsSection.hidden = false;
-    } else {
-      mitigationsSection.hidden = true;
-    }
+    renderMitigationGroups($("ask-mitigations-section"), answer.mitigation_groups);
 
     var plan = answer.query_plan || {};
     setText($("ask-plan-summary"), plan.summary || "");
@@ -605,7 +663,7 @@
     var spreadRateRaw = $("brief-spread-rate").value;
     if (!field || !well || !isFinite(td)) {
       setStatus($("brief-status"), "A field, a well name and a planned TD are required.", true);
-      return;
+      return null;
     }
     var body = { field: field, well: well, td: td };
     if (rig) {
@@ -632,13 +690,16 @@
     };
     setStatus($("brief-status"), "Building brief...", false);
     $("brief-result").hidden = true;
-    api("/api/brief", { method: "POST", body: body })
+    return api("/api/brief", { method: "POST", body: body })
       .then(function (payload) {
         setStatus($("brief-status"), "", false);
         renderBrief(payload);
+        writeHash("brief", briefHashParams(lastBriefParams));
+        return payload;
       })
       .catch(function (err) {
         setStatus($("brief-status"), err.message, true);
+        return null;
       });
   }
 
@@ -969,6 +1030,134 @@
   }
 
   // ---------------------------------------------------------------------
+  // Shareable state: `location.hash` names one tab and its own flat query string, e.g.
+  // "#ask?q=<question>&field=<f>&open=<doc id>",
+  // "#brief?field=<f>&well=<w>&td=<m>&rig=<r>&mwd=<m>&spread=<s>&expand=<n>" or
+  // "#npt?field=<f>" -- nothing nested, and nothing here that this file does not already
+  // render from the JSON API, so `URLSearchParams` is all the parsing needs.
+  //
+  // Read once on load (`restoreFromHash`, called after `loadStatus` fills the field selects
+  // the restored value is set on) to put the page in that state: run the question or build the
+  // brief, then open a cited document (its own quote highlighted, the same as clicking its
+  // citation chip would) or expand a risk row (`expand` is that row's 0-based index, the same
+  // one `risk-detail-<n>` already uses). Written back with `history.replaceState` (no new
+  // history entry, no `hashchange` event to react to) right after the user asks a question or
+  // builds a brief, so the address bar always names what is on screen and reloading it restores
+  // the same view. `open` and `expand` exist only to be read back on load; asking a question,
+  // clicking a citation chip or expanding a risk row through the page itself never adds them.
+  // ---------------------------------------------------------------------
+
+  function parseHash() {
+    var raw = location.hash.slice(1);
+    var mark = raw.indexOf("?");
+    var tab = mark === -1 ? raw : raw.slice(0, mark);
+    if (TAB_ORDER.indexOf(tab) === -1) {
+      return null;
+    }
+    return { tab: tab, params: new URLSearchParams(mark === -1 ? "" : raw.slice(mark + 1)) };
+  }
+
+  function writeHash(tab, params) {
+    var qs = params.toString();
+    history.replaceState(null, "", "#" + tab + (qs ? "?" + qs : ""));
+  }
+
+  function askHashParams(question, field) {
+    var params = new URLSearchParams();
+    params.set("q", question);
+    if (field) {
+      params.set("field", field);
+    }
+    return params;
+  }
+
+  function briefHashParams(params) {
+    var out = new URLSearchParams();
+    out.set("field", params.field);
+    out.set("well", params.well);
+    out.set("td", String(params.td));
+    if (params.rig) {
+      out.set("rig", params.rig);
+    }
+    if (params.mwd) {
+      out.set("mwd", params.mwd);
+    }
+    if (params.spread_rate !== null && params.spread_rate !== undefined) {
+      out.set("spread", String(params.spread_rate));
+    }
+    return out;
+  }
+
+  function restoreFromHash() {
+    var state = parseHash();
+    if (!state) {
+      return;
+    }
+    selectTab(state.tab);
+    var params = state.params;
+
+    if (state.tab === "ask") {
+      var question = params.get("q");
+      if (!question) {
+        return;
+      }
+      $("ask-field").value = params.get("field") || "";
+      $("ask-question").value = question;
+      var openId = params.get("open");
+      Promise.resolve(runAsk()).then(function (answer) {
+        if (!answer || !openId) {
+          return;
+        }
+        var cited = (answer.citations || []).filter(function (c) {
+          return c.doc_id === openId;
+        })[0];
+        openDocPanel(openId, cited ? cited.quote : "", null);
+      });
+      return;
+    }
+
+    if (state.tab === "brief") {
+      var field = params.get("field");
+      var well = params.get("well");
+      var td = params.get("td");
+      if (!field || !well || !td) {
+        return;
+      }
+      $("brief-field").value = field;
+      $("brief-well").value = well;
+      $("brief-td").value = td;
+      $("brief-rig").value = params.get("rig") || "";
+      $("brief-mwd").value = params.get("mwd") || "";
+      $("brief-spread-rate").value = params.get("spread") || "";
+      var expandIndex = params.get("expand");
+      Promise.resolve(runBrief()).then(function (payload) {
+        if (!payload || expandIndex === null) {
+          return;
+        }
+        var toggle = null;
+        try {
+          toggle = document.querySelector('[aria-controls="risk-detail-' + expandIndex + '"]');
+        } catch (err) {
+          toggle = null;
+        }
+        if (toggle) {
+          toggle.click();
+          toggle.scrollIntoView({ block: "center" });
+        }
+      });
+      return;
+    }
+
+    if (state.tab === "npt") {
+      var nptField = params.get("field");
+      if (nptField) {
+        $("npt-field").value = nptField;
+      }
+      runNpt();
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Header: workspace name, network-mode badge, and the field lists every form draws on.
   // ---------------------------------------------------------------------
 
@@ -980,13 +1169,14 @@
         setText(badge, "network: " + status.network_mode);
         badge.setAttribute("data-mode", status.network_mode);
 
-        var fields = (status.fields || []).map(function (f) {
+        var fieldRows = status.fields || [];
+        var fields = fieldRows.map(function (f) {
           return f.field;
         });
         fillFieldSelect($("ask-field"), fields, { allOption: "All fields" });
         fillFieldSelect($("brief-field"), fields, { placeholder: "Select a field" });
         fillFieldSelect($("npt-field"), fields, { allOption: "All fields" });
-        renderExamples(fields);
+        renderExamples(fields, fieldRows);
         return status;
       })
       .catch(function (err) {
@@ -1002,7 +1192,7 @@
     initNpt();
     $("doc-panel-close").addEventListener("click", closeDocPanel);
     $("doc-panel-backdrop").addEventListener("click", closeDocPanel);
-    loadStatus();
+    loadStatus().then(restoreFromHash);
   }
 
   init();

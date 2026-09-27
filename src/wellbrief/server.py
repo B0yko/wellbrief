@@ -258,9 +258,17 @@ def _doc_payload(ws: Workspace, doc_id: str) -> dict[str, Any]:
 
 
 def _status_payload_for(ws: Workspace, narrator: Narrator) -> dict[str, Any]:
+    """`workspace.status_payload`, plus one key the web UI alone needs: each field row's
+    `example_topics` (`analytics.example_topics`), the material its own example questions are
+    built from. Added here rather than in `status_payload` itself so `wellbrief status --json`,
+    which nothing in the UI reads, stays exactly the workspace/index health report it always was.
+    """
     store = ws.open_store()
     try:
-        return status_payload(ws, store, narrator.name)
+        payload = status_payload(ws, store, narrator.name)
+        for row in payload["fields"]:
+            row["example_topics"] = analytics.example_topics(store, row["field"])
+        return payload
     finally:
         store.close()
 

@@ -136,6 +136,46 @@ def npt_payload(store: Store, spread_rate: float = DEFAULT_SPREAD_RATE_USD_PER_D
     return {"since": since, **roll} if since else roll
 
 
+def example_topics(store: Store, field_name: str) -> dict[str, str]:
+    """Natural, workspace-derived material for the UI's example questions on `field_name`: its
+    most frequent avoidable NPT code's own label, the hole section that code's own hours
+    concentrate in, and the field's overall largest formation by hours -- three independent facts
+    read straight from the ledger, never a name written into this module, so a freshly ingested
+    site gets its own examples with no code change. "Most frequent" is read the way the rest of
+    this module already ranks everything: by hours, the same order `rollup`'s own `by_code`
+    returns -- not by a raw count of events, which a field's many short, routine delays (waiting
+    on materials, standby) could otherwise dominate over the one recurring problem the risk brief
+    itself would flag.
+
+    Any value this field's ledger cannot supply (no NPT events at all, none of them avoidable, or
+    no hole section/formation recorded) comes back as `""`; the caller then leaves out whichever
+    example needed it rather than showing a blank or a placeholder.
+    """
+    events = store.npt(field_name=field_name)
+    top_formation = ""
+    if events:
+        formation_rows = [r for r in rollup(events)["by_formation"] if r["key"] != "unknown"]
+        if formation_rows:
+            top_formation = str(formation_rows[0]["key"])
+
+    top_code_label = ""
+    top_section = ""
+    avoidable = [e for e in events if e.code in AVOIDABLE_CODES]
+    if avoidable:
+        top_row = rollup(avoidable)["by_code"][0]
+        top_code_label = str(top_row["label"]).split(" / ")[0]
+        section_rows = [r for r in rollup([e for e in avoidable if e.code == top_row["code"]])["by_section"]
+                        if r["key"] != "unknown"]
+        if section_rows:
+            top_section = str(section_rows[0]["key"])
+
+    return {
+        "top_avoidable_code_label": top_code_label,
+        "top_section_for_code": top_section,
+        "top_formation": top_formation,
+    }
+
+
 @dataclass
 class Pattern:
     """A problem that repeats across wells in the same place, or on the same

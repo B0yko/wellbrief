@@ -224,6 +224,17 @@ def test_status_reports_the_workspace_and_network_mode(running_server: str) -> N
     assert isinstance(payload["outbound_connection_attempts"], int)
     fields = {f["field"] for f in payload["fields"]}
     assert {"Orrindale", "Vessra South"} <= fields
+    # Each field row also carries the material its own Ask-tab example questions are built
+    # from (`analytics.example_topics`); this is the one key `status_payload` itself does not
+    # produce (see `_status_payload_for`), so wiring it in is worth its own assertion here on
+    # top of `test_analytics.py`'s direct coverage of the function.
+    for row in payload["fields"]:
+        assert set(row["example_topics"]) == {
+            "top_avoidable_code_label", "top_section_for_code", "top_formation",
+        }
+        assert all(isinstance(v, str) for v in row["example_topics"].values())
+    orrindale = next(f for f in payload["fields"] if f["field"] == "Orrindale")
+    assert orrindale["example_topics"]["top_avoidable_code_label"]
 
 
 def test_status_post_is_method_not_allowed(running_server: str) -> None:

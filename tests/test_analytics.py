@@ -380,3 +380,78 @@ def test_single_rig_field_never_reports_a_false_equipment_pattern(tmp_path: Path
     # The only section field-wide, so the interval lift is exactly 1.0 (never >= min_lift
     # either) -- this ledger plants no pattern at all, only the bug this test guards.
     assert patterns == []
+
+
+# ---------------------------------------------------------------------------
+# example_topics: the material the UI's example questions are built from
+# (GET /api/status -> app.js's renderExamples), read straight from a field's
+# own ledger with no name of any kind written into this module.
+# ---------------------------------------------------------------------------
+
+def test_example_topics_reads_the_fields_own_busiest_code_section_and_formation(store: Store) -> None:
+    # Riverbend's own numbers (see the module docstring above): RIG_REPAIR is the busiest
+    # avoidable code by hours (26 h against WELLBORE_INSTABILITY's 12 h), entirely inside
+    # 12 1/4" / Bluff Shale, which is also the field's busiest formation overall (its 38 h
+    # of RIG_REPAIR + WELLBORE_INSTABILITY beats the quiet section's 5 h of weather).
+    topics = analytics.example_topics(store, ledger.FIELD)
+    assert topics == {
+        "top_avoidable_code_label": "Rig equipment repair",
+        "top_section_for_code": ledger.HOT_SECTION,
+        "top_formation": ledger.HOT_FORMATION,
+    }
+
+
+def test_example_topics_is_empty_for_a_field_with_no_npt_events(store: Store) -> None:
+    # A name absent from the ledger entirely: every value falls back to "" rather than
+    # raising or picking an arbitrary code.
+    assert analytics.example_topics(store, "No Such Field") == {
+        "top_avoidable_code_label": "",
+        "top_section_for_code": "",
+        "top_formation": "",
+    }
+
+
+def test_example_topics_when_only_unavoidable_codes_are_recorded(tmp_path: Path) -> None:
+    # No avoidable code exists in scope, so the code/section pair falls back to "" even
+    # though the field does have NPT events and an overall busiest formation.
+    field, well = "Placid", "PLC-101"
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([Document(
+        doc_id=f"DDR-{well}-001", doc_type="ddr", well=well, field_name=field, date="2024-01-01",
+        title="DAILY DRILLING REPORT", text="DAILY DRILLING REPORT\n",
+        meta={"hole_section": '17 1/2"', "formation": "Fenmoor Marl"},
+    )])
+    store.put_npt([NptEvent(
+        doc_id=f"DDR-{well}-001", well=well, field_name=field, date="2024-01-01",
+        code="WAIT_ON_WEATHER", hours=4.0, hole_section='17 1/2"', formation="Fenmoor Marl",
+        depth_m=2000.0, mud_weight_sg=1.30, rig="Rig-1", description="Waiting on weather.",
+    )])
+    assert analytics.example_topics(store, field) == {
+        "top_avoidable_code_label": "",
+        "top_section_for_code": "",
+        "top_formation": "Fenmoor Marl",
+    }
+
+
+def test_example_topics_falls_back_when_the_busiest_code_has_no_recorded_section(
+    tmp_path: Path,
+) -> None:
+    # An avoidable code exists, but its own events carry no hole section or formation: the
+    # code's own label is still reported, while the section and (since it is the only code
+    # recorded) the formation both fall back to "".
+    field, well = "Rimwood", "RMW-101"
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([Document(
+        doc_id=f"DDR-{well}-001", doc_type="ddr", well=well, field_name=field, date="2024-01-01",
+        title="DAILY DRILLING REPORT", text="DAILY DRILLING REPORT\n",
+    )])
+    store.put_npt([NptEvent(
+        doc_id=f"DDR-{well}-001", well=well, field_name=field, date="2024-01-01",
+        code="RIG_REPAIR", hours=5.0, hole_section="", formation="",
+        depth_m=2000.0, mud_weight_sg=1.30, rig="Rig-1", description="Fluid end replaced.",
+    )])
+    assert analytics.example_topics(store, field) == {
+        "top_avoidable_code_label": "Rig equipment repair",
+        "top_section_for_code": "",
+        "top_formation": "",
+    }
