@@ -11,7 +11,13 @@ import pytest
 import mini_workspace as mini
 from wellbrief.models import Answer, Document, NptEvent
 from wellbrief.narrate import NO_MATCH
-from wellbrief.qa import FIGURE_SOURCE_LIMIT, MITIGATIONS_HEADING_AVOIDED, MITIGATIONS_HEADING_GENERAL, ask
+from wellbrief.qa import (
+    FIGURE_SOURCE_LIMIT,
+    MITIGATIONS_HEADING_AVOIDED,
+    MITIGATIONS_HEADING_GENERAL,
+    MITIGATIONS_HEADING_INCIDENT,
+    ask,
+)
 from wellbrief.search import Searcher
 from wellbrief.store import Store
 
@@ -237,7 +243,8 @@ def test_a_figure_source_is_quoted_by_the_entry_the_figure_counts(workspace: tup
 
 def test_the_ask_json_carries_plan_figures_sources_citations(workspace: tuple[Store, Searcher]) -> None:
     d = answer(workspace, "Stuck pipe in the 17 1/2\" section on ord-101").to_dict()
-    assert {"query_plan", "figures", "figure_sources", "citations", "abstained", "unmatched"} <= set(d)
+    assert {"query_plan", "figures", "figure_sources", "citations", "abstained", "unmatched",
+           "mitigation_groups"} <= set(d)
     assert d["abstained"] is False and d["unmatched"] is None
     assert d["query_plan"]["wells"] == ["ORD-101"] and d["query_plan"]["hole_sections"] == ['17 1/2"']
     assert d["figures"]["total_hours"] == 29.5
@@ -423,3 +430,116 @@ def test_ask_shows_no_mitigations_when_the_question_names_two_codes(
     assert a.mitigations == []
     assert f"{MITIGATIONS_HEADING_AVOIDED}:" not in a.text
     assert f"{MITIGATIONS_HEADING_GENERAL}:" not in a.text
+
+
+# ---------------------------------------------------------------------------
+# An incident's corrective action is written by the well that HAD the
+# problem, never one that avoided it, so it must never appear under
+# `MITIGATIONS_HEADING_AVOIDED` -- even when the miner's clean-well scope also
+# turns up a genuine end-of-well-report practice sentence in the same call.
+# `MITIGATIONS_HEADING_INCIDENT` is its own heading for exactly that reason.
+# ---------------------------------------------------------------------------
+
+def _incident_text(field: str, well: str, section: str, formation: str, action: str) -> str:
+    return (
+        "INCIDENT REPORT\n"
+        f"Operator: Quillfen Energy    Field: {field}    Well: {well}\n"
+        "Classification: STUCK_PIPE   Lost time: 20.0 h\n"
+        f"Depth: 1,400 m MD  Hole section: {section}  Formation: {formation}\n"
+        "4. ROOT CAUSE\nUnder investigation.\n"
+        f"5. CORRECTIVE ACTIONS\n  - {action}\n"
+    )
+
+
+def _mixed_source_store(tmp_path: Path) -> tuple[Store, Searcher]:
+    """One affected well (a STUCK_PIPE event, and its own incident report with a same-code
+    corrective action) and one clean well (a genuine end-of-well-report practice sentence): the
+    miner finds one mitigation of each kind for the same scope."""
+    field, section, formation = "Kestrel", '17 1/2"', "Keldra Salt"
+    store = Store(tmp_path / "wellbrief.db")
+
+    def ddr(well: str) -> Document:
+        return Document(
+            f"DDR-{well}-001", "ddr", well, field, "2024-01-05", "DAILY DRILLING REPORT",
+            f"DAILY DRILLING REPORT\nOperator: Quillfen Energy    Field: {field}    Well: {well}\n",
+            meta={"hole_section": section, "formation": formation},
+        )
+
+    store.put_documents([
+        ddr("KST-101"), ddr("KST-102"),
+        Document(
+            "EOWR-KST-102", "eowr", "KST-102", field, "2024-03-01", "END OF WELL REPORT",
+            "END OF WELL REPORT\n\n4. LESSONS LEARNED\n  1. Hold at least 1.42 sg across Keldra Salt "
+            "and sweep with saturated brine every 250 m.\n",
+        ),
+        Document(
+            "INC-KST-101-01", "incident", "KST-101", field, "2024-01-06", "INCIDENT REPORT",
+            _incident_text(field, "KST-101", section, formation,
+                           "Place the jars so that the string can be backed off above the stuck "
+                           "point in the salt."),
+        ),
+    ])
+    store.put_npt([NptEvent(
+        "DDR-KST-101-001", "KST-101", field, "2024-01-05", "STUCK_PIPE", 23.5, section, formation,
+        1402.0, 1.30, "Orrin-1", "String packed off at 1,402 m while pulling out of hole.",
+    )])
+    return store, mini.searcher(store)
+
+
+def test_an_incident_corrective_action_never_shares_the_avoided_heading(tmp_path: Path) -> None:
+    store, searcher = _mixed_source_store(tmp_path)
+    a = ask("Stuck pipe in Keldra Salt on Kestrel", store, searcher)
+    assert not a.abstained
+
+    sources = {m["doc_id"]: m["source"] for m in a.mitigations}
+    assert sources == {"EOWR-KST-102": "eowr", "INC-KST-101-01": "incident"}
+
+    assert [g["heading"] for g in a.mitigation_groups] == [
+        MITIGATIONS_HEADING_AVOIDED, MITIGATIONS_HEADING_INCIDENT,
+    ]
+    avoided, incident = a.mitigation_groups
+    assert [m["doc_id"] for m in avoided["mitigations"]] == ["EOWR-KST-102"]
+    assert [m["doc_id"] for m in incident["mitigations"]] == ["INC-KST-101-01"]
+
+    # Reproduces the reported defect directly in the rendered text: everything between the two
+    # headings is the avoided-heading's own group, and the incident's own document id must not
+    # appear there.
+    avoided_block = a.text.split(f"{MITIGATIONS_HEADING_AVOIDED}:", 1)[1]
+    avoided_block = avoided_block.split(f"{MITIGATIONS_HEADING_INCIDENT}:", 1)[0]
+    assert "INC-KST-101-01" not in avoided_block
+    assert "EOWR-KST-102" in avoided_block
+    incident_block = a.text.split(f"{MITIGATIONS_HEADING_INCIDENT}:", 1)[1]
+    assert "INC-KST-101-01" in incident_block
+
+
+def test_incident_only_mitigations_get_their_own_heading(tmp_path: Path) -> None:
+    """No clean well exists in this scope at all (a single well in the store); the only
+    mitigation the miner finds is that well's own incident corrective action, which must still
+    get its own heading rather than folding into either end-of-well-report heading."""
+    field, section, formation = "Petrel", '17 1/2"', "Keldra Salt"
+    store = Store(tmp_path / "wellbrief.db")
+    store.put_documents([
+        Document(
+            "DDR-PTL-101-001", "ddr", "PTL-101", field, "2024-01-05", "DAILY DRILLING REPORT",
+            f"DAILY DRILLING REPORT\nOperator: Quillfen Energy    Field: {field}    Well: PTL-101\n",
+            meta={"hole_section": section, "formation": formation},
+        ),
+        Document(
+            "INC-PTL-101-01", "incident", "PTL-101", field, "2024-01-06", "INCIDENT REPORT",
+            _incident_text(field, "PTL-101", section, formation,
+                           "Place the jars so that the string can be backed off above the stuck "
+                           "point in the salt."),
+        ),
+    ])
+    store.put_npt([NptEvent(
+        "DDR-PTL-101-001", "PTL-101", field, "2024-01-05", "STUCK_PIPE", 23.5, section, formation,
+        1402.0, 1.30, "Orrin-1", "String packed off at 1,402 m while pulling out of hole.",
+    )])
+    a = ask("Stuck pipe in Keldra Salt on Petrel", store, mini.searcher(store))
+    assert not a.abstained
+    assert len(a.mitigation_groups) == 1
+    assert a.mitigation_groups[0]["heading"] == MITIGATIONS_HEADING_INCIDENT
+    assert [m["doc_id"] for m in a.mitigation_groups[0]["mitigations"]] == ["INC-PTL-101-01"]
+    assert f"{MITIGATIONS_HEADING_AVOIDED}:" not in a.text
+    assert f"{MITIGATIONS_HEADING_GENERAL}:" not in a.text
+    assert f"{MITIGATIONS_HEADING_INCIDENT}:" in a.text

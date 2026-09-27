@@ -264,6 +264,7 @@ class Answer:
     abstained: bool = False
     unmatched: dict[str, Any] | None = None
     mitigations: list[dict[str, str]] = field(default_factory=list)
+    mitigation_groups: list[dict[str, Any]] = field(default_factory=list)
     citation_warnings: list[str] = field(default_factory=list)
     narrator: str = ""
     narrator_rejected: dict[str, Any] | None = None
@@ -279,6 +280,7 @@ class Answer:
             "figure_sources": self.figure_sources,
             "citations": [c.to_dict() for c in self.citations],
             "mitigations": self.mitigations,
+            "mitigation_groups": self.mitigation_groups,
             "citation_warnings": self.citation_warnings,
             "narrator": self.narrator,
             "narrator_rejected": self.narrator_rejected,

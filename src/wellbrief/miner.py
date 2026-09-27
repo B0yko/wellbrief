@@ -52,6 +52,8 @@ from .quotes import verbatim_quote
 from .store import Store
 
 __all__ = [
+    "MITIGATION_SOURCE_EOWR",
+    "MITIGATION_SOURCE_INCIDENT",
     "MinerScope",
     "Mitigation",
     "classify_many",
@@ -215,14 +217,26 @@ class MinerScope:
     clean_wells: frozenset[str] | None = None
 
 
+#: `Mitigation.source`: which of the miner's two candidate pools a sentence came from -- an
+#: end of well report's own lessons or recommendations (a clean well's, or an unrestricted
+#: one when no clean population is known; see `MinerScope`), or a same-code incident report's
+#: corrective actions (never restricted to clean wells: a corrective action is written by the
+#: well that HAD the problem, and is a valid mitigation regardless). A caller that shows a
+#: heading claiming the mitigation comes from "wells that avoided it" (`qa.ask`) must never
+#: apply that claim to a `"incident"`-sourced entry.
+MITIGATION_SOURCE_EOWR = "eowr"
+MITIGATION_SOURCE_INCIDENT = "incident"
+
+
 @dataclass(frozen=True)
 class Mitigation:
     text: str
     doc_id: str
     well: str
+    source: str = MITIGATION_SOURCE_EOWR
 
     def to_dict(self) -> dict[str, str]:
-        return {"text": self.text, "doc_id": self.doc_id, "well": self.well}
+        return {"text": self.text, "doc_id": self.doc_id, "well": self.well, "source": self.source}
 
 
 @dataclass(frozen=True)
@@ -232,9 +246,12 @@ class _Candidate:
     text: str
     doc_id: str
     well: str
+    source: str
 
 
 _KIND_RANK = {"lesson": 0, "recommendation": 1, "corrective_action": 2}
+_KIND_SOURCE = {"lesson": MITIGATION_SOURCE_EOWR, "recommendation": MITIGATION_SOURCE_EOWR,
+                "corrective_action": MITIGATION_SOURCE_INCIDENT}
 
 
 def exposed_clean_wells(store: Store, field_name: str | None, code: str,
@@ -299,7 +316,7 @@ def _eowr_candidates(store: Store, scope: MinerScope,
             if quote is None:
                 continue
             out.append(_Candidate(_keyword_score(sentence, scope.code, patterns), _KIND_RANK[kind],
-                                  quote, doc.doc_id, doc.well))
+                                  quote, doc.doc_id, doc.well, _KIND_SOURCE[kind]))
     return out
 
 
@@ -339,7 +356,8 @@ def _incident_candidates(store: Store, scope: MinerScope,
             if quote is None:
                 continue
             out.append(_Candidate(_keyword_score(action, scope.code, patterns),
-                                  _KIND_RANK["corrective_action"], quote, doc.doc_id, doc.well))
+                                  _KIND_RANK["corrective_action"], quote, doc.doc_id, doc.well,
+                                  MITIGATION_SOURCE_INCIDENT))
     return out
 
 
@@ -385,7 +403,7 @@ def mine_mitigations(store: Store, scope: MinerScope, limit: int = 3,
     for c in candidates:
         if any(_near_duplicate(c.text, m.text) for m in out):
             continue
-        out.append(Mitigation(c.text, c.doc_id, c.well))
+        out.append(Mitigation(c.text, c.doc_id, c.well, c.source))
         if len(out) >= limit:
             break
     return out

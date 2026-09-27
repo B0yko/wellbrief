@@ -72,11 +72,10 @@ class OfflineNarrator(Narrator):
             lines.append("From the documents:")
             for ev in retrieved[:6]:
                 lines.append(f"- {ev['quote']} [{ev['doc_id']}]")
-        if summary.get("mitigations"):
+        for group in summary.get("mitigation_groups") or []:
             lines.append("")
-            heading = summary.get("mitigations_heading") or "Recorded mitigations on wells that avoided it"
-            lines.append(f"{heading}:")
-            for m in summary["mitigations"][:3]:
+            lines.append(f"{group['heading']}:")
+            for m in group["mitigations"][:3]:
                 lines.append(f"- {m['text']} [{m['doc_id']}]")
         return "\n".join(lines)
 

@@ -173,9 +173,9 @@ def _numbers_from_text(text: str | None) -> list[float]:
 def evidence_from_pack(pack: list[dict[str, Any]], summary: dict[str, Any]) -> Evidence:
     """The evidence an `ask` answer may draw on: the pack `qa.ask` builds (each entry
     carries `doc_id`, `well`, `field` and `quote`) and the summary passed to
-    `Narrator.answer` alongside it (`figures`, `figure_sources`, `report_count` and
-    `mitigations`, walked whole so a per-report figure or a mitigation's own numbers
-    count as evidence too)."""
+    `Narrator.answer` alongside it (`figures`, `figure_sources`, `report_count`,
+    `mitigations` and `mitigation_groups`, walked whole so a per-report figure or a
+    mitigation's own numbers count as evidence too)."""
     doc_ids = {e["doc_id"] for e in pack if e.get("doc_id")}
     wells = {e["well"] for e in pack if e.get("well")} | _strings_by_key(summary, "well")
     fields = {e["field"] for e in pack if e.get("field")} | _strings_by_key(summary, "field")

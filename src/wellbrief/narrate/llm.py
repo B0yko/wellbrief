@@ -1098,10 +1098,9 @@ def _evidence_block(question: str, evidence: Sequence[Mapping[str, Any]], summar
     if figures:
         lines += ["", "Computed figures (already correct; narrate them, never recompute):",
                  json.dumps(figures, ensure_ascii=False)]
-    mitigations = summary.get("mitigations")
-    if mitigations:
-        lines += ["", f"{summary.get('mitigations_heading') or 'Mitigations'}:"]
-        lines += [f"- [{m['doc_id']}] {m['text']}" for m in mitigations]
+    for group in summary.get("mitigation_groups") or []:
+        lines += ["", f"{group['heading']}:"]
+        lines += [f"- [{m['doc_id']}] {m['text']}" for m in group["mitigations"]]
     return "\n".join(lines)
 
 

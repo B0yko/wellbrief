@@ -372,11 +372,35 @@ def test_the_limit_argument_controls_the_cap(store: Store) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_mitigation_to_dict_carries_text_doc_id_and_well(store: Store) -> None:
+def test_mitigation_to_dict_carries_text_doc_id_well_and_source(store: Store) -> None:
     scope = _scope(store, clean_wells=frozenset({CLEAN_WELL}))
     found = mine_mitigations(store, scope)
     assert found
     d = found[0].to_dict()
-    assert set(d) == {"text", "doc_id", "well"}
+    assert set(d) == {"text", "doc_id", "well", "source"}
     assert d["well"] == CLEAN_WELL
     assert d["doc_id"] == f"EOWR-{CLEAN_WELL}"
+    assert d["source"] == "eowr"
+
+
+# ---------------------------------------------------------------------------
+# Mitigation.source: which candidate pool a sentence came from -- the caller (`qa.ask`) needs
+# this to know which of its two headings a mitigation may truthfully sit under (see
+# `test_ask.py`'s mitigation-heading tests).
+# ---------------------------------------------------------------------------
+
+
+def test_an_end_of_well_report_lesson_is_sourced_as_eowr(store: Store) -> None:
+    scope = _scope(store, clean_wells=frozenset({CLEAN_WELL}))
+    found = mine_mitigations(store, scope)
+    assert [m.source for m in found] == ["eowr"]
+
+
+def test_an_incident_corrective_action_is_sourced_as_incident(store: Store) -> None:
+    store.put_documents([_incident(f"INC-{AFFECTED_WELL}-01", AFFECTED_WELL, CODE, SECTION, FORMATION,
+                                  ["Run a caliper across the salt before the trip out for casing."])])
+    scope = _scope(store, clean_wells=frozenset({CLEAN_WELL}))
+    found = mine_mitigations(store, scope, limit=10)
+    by_doc = {m.doc_id: m.source for m in found}
+    assert by_doc[f"EOWR-{CLEAN_WELL}"] == "eowr"
+    assert by_doc[f"INC-{AFFECTED_WELL}-01"] == "incident"

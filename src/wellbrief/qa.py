@@ -17,10 +17,16 @@ the other stages produced.
 - Mitigations come from the same miner `riskbrief.build_risk` uses
   (`miner.mine_mitigations`): a rule-based classifier keeps only sentences
   written as a practice, not a description of the failure. `_mitigations_for`
-  also picks the answer's heading -- "Recorded mitigations on wells that
-  avoided it" only when the miner drew them from a population it could
-  compute as having avoided the named problem, "Lessons and recommendations
-  from end-of-well reports" otherwise.
+  splits them into at most two groups (`_mitigation_groups`), each with its
+  own heading, because an end-of-well-report sentence and an incident's
+  corrective action carry a different truth claim and must never share one
+  heading: "Recorded mitigations on wells that avoided it" for the
+  end-of-well-report group only when the miner drew it from a population it
+  could compute as having avoided the named problem ("Lessons and
+  recommendations from end-of-well reports" otherwise), and "Corrective
+  actions from incident reports with the same NPT code" for the incident
+  group whenever it is non-empty, regardless of which heading (or whether
+  any) the other group carries.
 - Every document the narrator may cite is put into the evidence pack with a
   verbatim quote: the retrieval hits, the cited figure sources, and the
   documents the mitigations are quoted from -- a clean well's end of well
@@ -53,7 +59,14 @@ from .config import (
     NPT_CODES,
     hours_to_usd,
 )
-from .miner import MinerScope, exposed_clean_wells, mine_mitigations
+from .miner import (
+    MITIGATION_SOURCE_EOWR,
+    MITIGATION_SOURCE_INCIDENT,
+    MinerScope,
+    Mitigation,
+    exposed_clean_wells,
+    mine_mitigations,
+)
 from .models import Answer, Citation, Document, SearchHit
 from .narrate import NO_MATCH, Narrator, OfflineNarrator, extract_cited_ids
 from .quotes import evidence_quote, quote_page
@@ -215,32 +228,56 @@ def _merge(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-#: Heading `ask` shows above its mitigations when the miner drew them from a
-#: population it knows avoided the named problem.
+#: Heading `ask` shows above the end-of-well-report group of its mitigations when the miner drew
+#: them from a population it knows avoided the named problem.
 MITIGATIONS_HEADING_AVOIDED = "Recorded mitigations on wells that avoided it"
-#: Heading otherwise: the question named no code, or no clean population is
+#: Heading for that same group otherwise: the question named no code, or no clean population is
 #: known, so these are relevant lessons and recommendations, not a claim that
 #: any of them come from a well that avoided anything.
 MITIGATIONS_HEADING_GENERAL = "Lessons and recommendations from end-of-well reports"
+#: Heading above the incident-report group, whenever it is non-empty. A corrective action is
+#: quoted from the incident report of a well that HAD the problem, never a well that avoided it,
+#: so it is never shown under `MITIGATIONS_HEADING_AVOIDED` -- regardless of which heading the
+#: end-of-well-report group above it carries, or whether that group exists at all.
+MITIGATIONS_HEADING_INCIDENT = "Corrective actions from incident reports with the same NPT code"
+
+
+def _mitigation_groups(mitigations: list[Mitigation], eowr_heading: str) -> list[dict[str, Any]]:
+    """`mitigations` split into at most two display groups, in this order: the end-of-well-report
+    sentences under `eowr_heading`, then the incident corrective actions under
+    `MITIGATIONS_HEADING_INCIDENT` -- never merged under one heading, because the two carry a
+    different truth claim (see the constants above). A group missing from `mitigations` is left
+    out entirely, so an answer with only one kind shows only that kind's heading."""
+    eowr = [m.to_dict() for m in mitigations if m.source == MITIGATION_SOURCE_EOWR]
+    incident = [m.to_dict() for m in mitigations if m.source == MITIGATION_SOURCE_INCIDENT]
+    groups: list[dict[str, Any]] = []
+    if eowr:
+        groups.append({"heading": eowr_heading, "mitigations": eowr})
+    if incident:
+        groups.append({"heading": MITIGATIONS_HEADING_INCIDENT, "mitigations": incident})
+    return groups
 
 
 def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3,
                      keywords: Mapping[str, list[str]] | None = None,
-                     ) -> tuple[list[dict[str, str]], str]:
-    """Mitigations relevant to the question's scope, through the same miner
-    `riskbrief.build_risk` uses, and the heading the answer
-    should show above them. `limit` defaults to 3, the same cap
+                     ) -> list[dict[str, Any]]:
+    """The answer's mitigation groups, through the same miner
+    `riskbrief.build_risk` uses (see `_mitigation_groups`). `limit` defaults to 3, the same cap
     `mine_mitigations` itself applies, so `ask` and `brief` show the same
-    "at most 3" everywhere; a caller only needs to pass it to ask for fewer.
+    "at most 3" everywhere, combined across both groups -- a caller only needs to pass it to ask
+    for fewer.
 
     When the plan names exactly one code and a hole section or formation,
     the wells that avoided it there can be computed directly from the ledger
     (`miner.exposed_clean_wells`), the same rule a discovered risk's
-    `clean_wells` already applies; if that population exists and yields a
-    mitigation, the answer may say so. Otherwise (no code named, or no known
-    clean well) the miner runs unrestricted -- any relevant end of well
-    report counts, not only ones known to have avoided the problem -- and the
-    weaker heading applies.
+    `clean_wells` already applies; if that population exists and the miner draws at least one
+    end-of-well-report sentence from it, that group is headed `MITIGATIONS_HEADING_AVOIDED`.
+    Otherwise (no code named, no known clean well, or a clean scope that yields nothing at all)
+    the miner runs unrestricted -- any relevant end of well report counts, not only ones known to
+    have avoided the problem -- and that group, if any, carries the weaker heading instead. Either
+    way, any same-code incident corrective action the miner finds is reported separately under its
+    own heading: incident candidates are never restricted by `clean_wells` (see `miner.MinerScope`),
+    so they must never inherit a heading that claims the well avoided the problem.
 
     A question that names no code, or more than one, leaves `code` empty:
     the miner's relevance test is keyed on one code's configured keywords
@@ -251,7 +288,7 @@ def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3,
     `Pattern` always carries exactly one code.
     """
     if not plan.scoped:
-        return [], MITIGATIONS_HEADING_GENERAL
+        return []
     fields: list[str] | None = list(plan.fields) or None
     single_field = plan.fields[0] if len(plan.fields) == 1 else None
     code = plan.codes[0] if len(plan.codes) == 1 else ""
@@ -265,11 +302,11 @@ def _mitigations_for(store: Store, plan: QueryPlan, limit: int = 3,
                                formation=formation, clean_wells=frozenset(clean))
             found = mine_mitigations(store, scope, limit, keywords=keywords)
             if found:
-                return [m.to_dict() for m in found], MITIGATIONS_HEADING_AVOIDED
+                return _mitigation_groups(found, MITIGATIONS_HEADING_AVOIDED)
 
     broad = MinerScope(code=code, field_name=fields, hole_section=hole_section, formation=formation)
     mitigations = mine_mitigations(store, broad, limit, keywords=keywords)
-    return [m.to_dict() for m in mitigations], MITIGATIONS_HEADING_GENERAL
+    return _mitigation_groups(mitigations, MITIGATIONS_HEADING_GENERAL)
 
 
 def verify_citations(text: str, pack: list[dict[str, Any]], store: Store) -> list[str]:
@@ -346,7 +383,8 @@ def ask(
         return _abstain(question, plan, {"filters": applied}, narrator)
 
     cited_sources = sources[:FIGURE_SOURCE_LIMIT]
-    mitigations, mitigations_heading = _mitigations_for(store, plan, keywords=keywords)
+    mitigation_groups = _mitigations_for(store, plan, keywords=keywords)
+    mitigations = [m for group in mitigation_groups for m in group["mitigations"]]
     terms = quote_terms(question, plan)
     figure_pack = _figure_source_pack(store, plan, cited_sources, terms)
     hits = _quote_once(hits, figure_pack)
@@ -357,7 +395,7 @@ def ask(
         "figure_sources": [{"doc_id": s["doc_id"], "hours": s["hours"]} for s in cited_sources],
         "report_count": len(sources),
         "mitigations": mitigations,
-        "mitigations_heading": mitigations_heading,
+        "mitigation_groups": mitigation_groups,
         "plan": plan.describe(),
         "scope": plan.filters_text(types=False),
     }
@@ -378,6 +416,7 @@ def ask(
         figures=figures,
         figure_sources=sources,
         mitigations=mitigations,
+        mitigation_groups=mitigation_groups,
         citation_warnings=verify_citations(text, pack, store),
         narrator=narrator.name,
         narrator_rejected=narrator_rejected,
