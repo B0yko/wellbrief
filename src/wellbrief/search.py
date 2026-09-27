@@ -669,6 +669,28 @@ def quoted_entries(plan: QueryPlan, store: Store, doc_ids: Iterable[str]) -> dic
     return out
 
 
+# Retrieval modes `Searcher.search` accepts through its `mode` argument. Every caller but
+# the evals adapter's retrieval ablation (`wellbrief eval --ablation`) leaves `mode` at its
+# default, `HYBRID_FILTERED`, which is this module's ordinary, unchanged behaviour: BM25,
+# the embedder and (when the question names a depth) proximity to it, fused with reciprocal
+# rank fusion over the candidate set the query planner's structured filters narrow. The
+# other three modes isolate one part of that pipeline, to measure what it contributes:
+# `BM25_ONLY` and `HASHING_ONLY` rank on one retrieval signal alone, and `HYBRID_UNFILTERED`
+# fuses both signals but skips the planner's candidate narrowing and per-field scoping, so a
+# question naming a field still searches every field's index.
+BM25_ONLY = "bm25_only"
+HASHING_ONLY = "hashing_only"
+HYBRID_UNFILTERED = "hybrid_unfiltered"
+HYBRID_FILTERED = "hybrid_filtered"
+ABLATION_MODES = (BM25_ONLY, HASHING_ONLY, HYBRID_UNFILTERED, HYBRID_FILTERED)
+MODE_LABELS = {
+    BM25_ONLY: "BM25 only",
+    HASHING_ONLY: "hashing only",
+    HYBRID_UNFILTERED: "hybrid RRF (no planner filters)",
+    HYBRID_FILTERED: "hybrid with planner filters (product default)",
+}
+
+
 def _reduce_best_chunk(ranking: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """The document ranking a chunk ranking implies: each document keeps its single
     best-ranked chunk's score. `ranking` is sorted best first, so the first chunk seen
@@ -703,7 +725,7 @@ class Searcher:
 
     def _field_ranking(self, field_name: str, query: str, qvec: list[float] | None,
                        allowed: set[str] | None, depth: list[tuple[str, float]],
-                       pool: int) -> list[tuple[str, float, dict[str, float]]]:
+                       pool: int, mode: str = HYBRID_FILTERED) -> list[tuple[str, float, dict[str, float]]]:
         index = self.field_indexes.get(field_name)
         if index is None:
             return []
@@ -712,45 +734,57 @@ class Searcher:
             allowed_chunks = {c for c in index.bm25.doc_ids if chunk_document_id(c) in allowed}
             if not allowed_chunks:
                 return []
-        rankings: dict[str, list[tuple[str, float]]] = {
-            "bm25": _reduce_best_chunk(index.bm25.search(query, top_k=pool, allowed=allowed_chunks)),
-        }
-        try:
-            rankings["dense"] = (
-                _reduce_best_chunk(index.vectors.search(qvec, top_k=pool, allowed=allowed_chunks))
-                if qvec is not None else []
-            )
-        except Exception:  # noqa: BLE001 - the dense side is optional
-            rankings["dense"] = []
+        rankings: dict[str, list[tuple[str, float]]] = {}
+        if mode != HASHING_ONLY:
+            rankings["bm25"] = _reduce_best_chunk(
+                index.bm25.search(query, top_k=pool, allowed=allowed_chunks))
+        if mode != BM25_ONLY:
+            try:
+                rankings["dense"] = (
+                    _reduce_best_chunk(index.vectors.search(qvec, top_k=pool, allowed=allowed_chunks))
+                    if qvec is not None else []
+                )
+            except Exception:  # noqa: BLE001 - the dense side is optional
+                rankings["dense"] = []
         field_docs = index.doc_ids
         field_depth = [(d, s) for d, s in depth if d in field_docs][:pool]
         if field_depth:
             rankings["depth"] = field_depth
         return rrf_fuse(rankings, k=self.rrf_k)[:pool]
 
-    def search(self, question: str, top_k: int = DEFAULT_TOP_K,
-               plan: QueryPlan | None = None) -> tuple[list[SearchHit], QueryPlan]:
+    def search(self, question: str, top_k: int = DEFAULT_TOP_K, plan: QueryPlan | None = None,
+               mode: str = HYBRID_FILTERED) -> tuple[list[SearchHit], QueryPlan]:
         """Rank the candidate documents; no hits when the plan names something unknown
-        or its filters match no document."""
+        or its filters match no document.
+
+        `mode` is the retrieval ablation the evals adapter asks for (`ABLATION_MODES`
+        above); every other caller leaves it at the default, which is this function's
+        ordinary behaviour and is unchanged by `mode` existing at all.
+        """
+        if mode not in ABLATION_MODES:
+            raise ValueError(f"unknown search mode: {mode!r}")
         plan = plan or plan_query(question, self.store)
         if plan.unmatched:
             return [], plan
-        allowed = candidate_documents(plan, self.store)
+        filtered = mode == HYBRID_FILTERED
+        allowed = candidate_documents(plan, self.store) if filtered else None
         if allowed is not None and not allowed:
             return [], plan
 
-        target_fields = plan.fields or sorted(self.field_indexes)
+        target_fields = ((plan.fields or sorted(self.field_indexes)) if filtered
+                        else sorted(self.field_indexes))
         pool = max(top_k * 5, 40)
         query = expanded_query(question, plan)
         try:
             qvec = self.embedder.embed(query)
         except Exception:  # noqa: BLE001 - the dense side is optional
             qvec = None
-        # A depth in the question is a preference: reports near it get a third vote.
-        depth = _depth_ranking(plan, self.store, allowed)
+        # A depth in the question is a preference: reports near it get a third vote
+        # (only in the filtered mode: elsewhere the candidate set carries no depth band).
+        depth = _depth_ranking(plan, self.store, allowed) if filtered else []
 
         per_field = {f: r for f in target_fields
-                    if (r := self._field_ranking(f, query, qvec, allowed, depth, pool))}
+                    if (r := self._field_ranking(f, query, qvec, allowed, depth, pool, mode))}
         if len(per_field) <= 1:
             fused = next(iter(per_field.values()), [])[:top_k]
         else:

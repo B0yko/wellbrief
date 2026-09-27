@@ -53,6 +53,14 @@ class Context:
         self._workspace_error: Exception | None = None
         self._asks: dict[tuple[Any, ...], adapter.AskResult] = {}
         self._briefs: dict[tuple[Any, ...], adapter.Brief] = {}
+        # The suite the case currently running belongs to (`runner.run_case` sets this before
+        # calling a check), and every citation an `ask` or `brief` produced for a case of that
+        # suite since, verbatim-and-resolving offline citation checking's own "citations
+        # checked" evidence (`citation_stats`). `format-parity` builds a rendered workspace of
+        # its own and never calls `ask`/`brief` here, so it never adds to this; its own quotes
+        # are verified by `check_format_parity` directly.
+        self.current_suite = ""
+        self.citations: list[tuple[str, str, str]] = []
 
     @property
     def workspace(self) -> adapter.Workspace:
@@ -68,12 +76,31 @@ class Context:
                 raise
         return self._workspace
 
+    def record_citations(self, citations: Sequence[adapter.Cited]) -> None:
+        """Log citations against the currently running case's suite, for `citation_stats`."""
+        self.citations.extend((self.current_suite, c.doc_id, c.quote) for c in citations)
+
+    def citation_stats(self) -> dict[str, dict[str, int]]:
+        """Per suite: every citation logged by `record_citations`, and how many resolve to a
+        real corpus document and quote it verbatim (the "citations checked, verbatim and
+        resolving" figure `runner.run` adds to the eval JSON)."""
+        out: dict[str, dict[str, int]] = {}
+        for suite, doc_id, quote in self.citations:
+            entry = out.setdefault(suite, {"checked": 0, "verbatim_and_resolving": 0})
+            entry["checked"] += 1
+            text = self.source_text(doc_id)
+            if text is not None and verbatim(quote, text):
+                entry["verbatim_and_resolving"] += 1
+        return out
+
     def ask(self, question: str, top_k: int = RETRIEVAL_K,
             spread_rate: float | None = None) -> adapter.AskResult:
         key = (question, top_k, spread_rate)
         if key not in self._asks:
             self._asks[key] = self.workspace.ask(question, top_k=top_k, spread_rate=spread_rate)
-        return self._asks[key]
+        result = self._asks[key]
+        self.record_citations(result.citations)
+        return result
 
     def filters_for(self, case: Case) -> bool:
         """Whether the case's brief keeps the risk filters (`--no-risk-filters` reaches brief precision only).
@@ -88,7 +115,9 @@ class Context:
         if key not in self._briefs:
             self._briefs[key] = self.workspace.brief(case["field"], case["well"], float(case["td_m"]),
                                                      filters)
-        return self._briefs[key]
+        result = self._briefs[key]
+        self.record_citations([c for r in result.risks for c in r.citations])
+        return result
 
     def source_text(self, doc_id: str) -> str | None:
         """The text of a generated document, read from its file (None if the corpus has no such document)."""

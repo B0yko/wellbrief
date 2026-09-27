@@ -104,3 +104,64 @@ def test_a_field_missing_from_the_index_map_yields_no_hits_for_it(two_field_stor
     hits, plan = searcher.search("What happened on Southmoor?")
     assert plan.fields == ["Southmoor"]
     assert hits == []
+
+
+# ---------------------------------------------------------------------------
+# The retrieval ablation modes (`eval --ablation`): the product default is unchanged,
+# and each other mode isolates one part of the pipeline.
+# ---------------------------------------------------------------------------
+
+
+def test_the_default_mode_is_byte_identical_to_naming_it_explicitly(searcher: Searcher) -> None:
+    from wellbrief.search import HYBRID_FILTERED
+
+    question = "seismic sensor array on Northaven"
+    default_hits, default_plan = searcher.search(question)
+    explicit_hits, explicit_plan = searcher.search(question, mode=HYBRID_FILTERED)
+    assert [(h.doc_id, h.score) for h in default_hits] == [(h.doc_id, h.score) for h in explicit_hits]
+    assert default_plan.to_dict() == explicit_plan.to_dict()
+
+
+def test_an_unknown_mode_is_rejected(searcher: Searcher) -> None:
+    with pytest.raises(ValueError, match="unknown search mode"):
+        searcher.search("What happened on Southmoor?", mode="quantum")
+
+
+def test_bm25_only_never_touches_the_embedder_or_the_vector_index(
+        two_field_store: Store, searcher: Searcher, monkeypatch: pytest.MonkeyPatch) -> None:
+    from wellbrief.search import BM25_ONLY
+    from wellbrief.workspace import VectorIndex
+
+    monkeypatch.setattr(VectorIndex, "search", lambda *a, **kw: pytest.fail("dense side was searched"))
+    hits, _ = searcher.search("seismic sensor array on Northaven", mode=BM25_ONLY)
+    assert {h.doc_id for h in hits} == {"DDR-NHV-1"}
+
+
+def test_hashing_only_never_touches_bm25(
+        two_field_store: Store, searcher: Searcher, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unlike BM25 (term-gated: a document with no query term never scores), the hashing
+    embedder scores every document, so hashing-only search over both fields may also surface
+    Southmoor's document; the point of this mode is that it never calls BM25 at all."""
+    from wellbrief.bm25 import BM25Index
+    from wellbrief.search import HASHING_ONLY
+
+    monkeypatch.setattr(BM25Index, "search", lambda *a, **kw: pytest.fail("BM25 was searched"))
+    hits, _ = searcher.search("seismic sensor array on Northaven", mode=HASHING_ONLY)
+    assert "DDR-NHV-1" in {h.doc_id for h in hits}
+
+
+def test_hybrid_unfiltered_searches_every_field_even_when_one_is_named(
+        two_field_store: Store, searcher: Searcher, monkeypatch: pytest.MonkeyPatch) -> None:
+    from wellbrief.search import HYBRID_UNFILTERED
+
+    called: list[str] = []
+    original = Searcher._field_ranking
+
+    def spy(self: Searcher, field_name: str, *a: object, **kw: object) -> list:
+        called.append(field_name)
+        return original(self, field_name, *a, **kw)
+
+    monkeypatch.setattr(Searcher, "_field_ranking", spy)
+    _, plan = searcher.search("seismic sensor array on Northaven", mode=HYBRID_UNFILTERED)
+    assert plan.fields == ["Northaven"]  # the planner still reads it; the mode ignores it
+    assert set(called) == {"Northaven", "Southmoor"}

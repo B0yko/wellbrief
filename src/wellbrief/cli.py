@@ -464,13 +464,25 @@ def _seeds(raw: str) -> list[int]:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from .evals import cases, results, runner
+    from .evals import ablation, cases, results, runner
 
-    unsupported = [flag for flag, used in (("--ablation", args.ablation), ("--repeats", args.repeats != 1))
-                  if used]
-    if unsupported:
-        print(f"wellbrief eval: {', '.join(unsupported)} is not supported yet", file=sys.stderr)
+    if args.repeats != 1:
+        print("wellbrief eval: --repeats is not supported yet", file=sys.stderr)
         return 2
+    if args.ablation:
+        emit = (lambda line: None) if args.json else print
+        try:
+            payload = ablation.run(args.seeds, args.argv)
+        except cases.CaseError as exc:
+            print(f"wellbrief eval: invalid case file: {exc}", file=sys.stderr)
+            return 2
+        emit(ablation.table(payload))
+        if args.out:
+            results.write(payload, args.out)
+            emit(f"results written to {args.out}")
+        if args.json:
+            print(json.dumps(results.scrub(payload), indent=2, ensure_ascii=False))
+        return 0
     if args.narrator == "llm":
         # A fast, filesystem-free configuration check, so a missing or malformed
         # WELLBRIEF_LLM_* variable is one clean message instead of the same error
@@ -666,7 +678,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="brief precision cases: build the briefs without the risk filters (min_lift 0, "
                          "unavoidable codes included) and report them without a score; "
                          "other briefs keep them")
-    sp.add_argument("--ablation", action="store_true", help="retrieval ablation (not supported yet)")
+    sp.add_argument("--ablation", action="store_true",
+                    help="retrieval ablation instead of the case suites: mean P@8/MRR@8 of the "
+                         "extended suite's retrieval-precision cases under four search modes "
+                         "(BM25 only, hashing only, hybrid RRF without planner filters, hybrid "
+                         "with planner filters, the product default); ignores --suite and "
+                         "--no-risk-filters, prints a table, --out also writes JSON")
     sp.add_argument("--repeats", type=int, default=1, help="repeats per case (not supported yet)")
     sp.add_argument("--json", action="store_true", help="machine-readable output")
     sp.set_defaults(func=cmd_eval)

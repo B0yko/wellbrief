@@ -76,10 +76,12 @@ def test_corpus_setup_errors_fail_every_case(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(adapter, "generate_corpus", no_corpus)
     lines: list[str] = []
-    rows = runner.run_seed(3, {"extended": [_case(), _case("abstention")]}, True, "offline", lines.append)
+    rows, citations = runner.run_seed(3, {"extended": [_case(), _case("abstention")]}, True, "offline",
+                                      lines.append)
     assert [r.passed for r in rows] == [False, False]
     assert all("corpus setup failed: OSError: disk full" in r.detail for r in rows)
     assert len(lines) == 2
+    assert citations == {}
 
 
 def _row(passed: bool | None, gate: bool, category: str = "retrieval-precision",
@@ -133,13 +135,95 @@ def test_no_risk_filters_reaches_brief_precision_only(tmp_path: Path,
     assert kept.passed is False
 
 
+def test_citations_are_grouped_by_the_current_suite(tmp_path: Path) -> None:
+    w = mini.well("ORD-101", "Orrindale", "Orrin-1", G1="clean")
+    doc = mini.ddr("DDR-ORD-101-001", w, "12 1/4\"", "Keldra Salt")
+    truth_data = {**mini.sidecar(), "wells": [w], "documents": [doc]}
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / doc["file"]).write_text("Stuck pipe occurred at 2650 m in the Keldra Salt.",
+                                          encoding="utf-8")
+    ctx = suites.Context(1, corpus_dir, tmp_path, truth.load(truth_data))
+
+    class Stub:
+        def __init__(self, citations: list[adapter.Cited]) -> None:
+            self._citations = citations
+
+        def ask(self, question: str, top_k: int = 8, spread_rate: float | None = None) -> adapter.AskResult:
+            return adapter.AskResult(text="", ranking=[], citations=self._citations, figures={})
+
+    ctx._workspace = Stub([adapter.Cited(doc["doc_id"], "Stuck pipe occurred at 2650 m")])  # type: ignore
+    ctx.current_suite = "original"
+    ctx.ask("q1")
+    ctx._workspace = Stub([adapter.Cited("UNKNOWN-DOC", "not a real quote")])  # type: ignore[assignment]
+    ctx.current_suite = "extended"
+    ctx.ask("q2")
+    assert ctx.citation_stats() == {
+        "original": {"checked": 1, "verbatim_and_resolving": 1},
+        "extended": {"checked": 1, "verbatim_and_resolving": 0},
+    }
+
+
+def test_run_seed_reports_citation_stats_through_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_corpus(out_dir: Path, seed: int, formats: str = "txt", ledger_csv: bool = False) -> None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    class StubWorkspace:
+        def __init__(self, corpus_dir: Path, work_dir: Path, **kwargs: Any) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def ask(self, question: str, top_k: int = 8, spread_rate: float | None = None) -> adapter.AskResult:
+            return adapter.AskResult(text="", ranking=[], citations=[adapter.Cited("DOC-1", "hello world")],
+                                     figures={})
+
+    monkeypatch.setattr(adapter, "generate_corpus", no_corpus)
+    monkeypatch.setattr(adapter, "Workspace", StubWorkspace)
+    monkeypatch.setattr(runner, "load_dir", lambda corpus_dir: truth.load(MINI_TRUTH))
+    case = _case("arithmetic", question="q", figure="total_hours", gold_sql="SELECT 1.0")
+    rows, citations = runner.run_seed(9, {"extended": [case]}, True, "offline", lambda line: None)
+    assert rows[0].suite == "extended"
+    assert citations == {"extended": {"checked": 1, "verbatim_and_resolving": 0}}
+
+
+def test_summarise_adds_a_citations_block_when_given_one() -> None:
+    rows = [_row(True, True)]
+    (summary,) = runner.summarise(rows, {("extended", 1): {"checked": 4, "verbatim_and_resolving": 3}})
+    assert summary["citations"] == {"checked": 4, "verbatim_and_resolving": 3, "percent": 75.0}
+    assert "citations: 3/4 verbatim and resolving (75.0%)" in runner.summary_line(summary)
+    # no entry for this (suite, seed): no citations block, and summary_line does not mention one
+    (bare,) = runner.summarise(rows)
+    assert "citations" not in bare
+    assert "citations" not in runner.summary_line(bare)
+
+
 def test_cli_rejects_options_that_are_not_wired_yet(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(["eval", "--ablation"]) == 2
-    assert "not supported yet" in capsys.readouterr().err
     assert cli.main(["--narrator", "llm", "eval"]) == 2
     assert cli.main(["eval", "--repeats", "3"]) == 2
+    assert "not supported yet" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         cli.main(["eval", "--seeds", "seven"])
+
+
+def test_cli_ablation_prints_a_table_and_can_write_json(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from wellbrief.evals import ablation
+
+    payload = {"metadata": {"seeds": [20260731]}, "modes": [
+        {"mode": "bm25_only", "label": "BM25 only", "cases": 1, "mean_p_at_8": 0.5, "mean_mrr_at_8": 1.0},
+    ]}
+
+    def stub_run(seeds: list[int], args: list[str], cases_dir: Path | None = None) -> dict[str, Any]:
+        return payload
+
+    monkeypatch.setattr(ablation, "run", stub_run)
+    out_path = tmp_path / "ablation.json"
+    assert cli.main(["eval", "--ablation", "--out", str(out_path), "--json"]) == 0
+    printed = capsys.readouterr().out
+    assert "BM25 only" in printed
+    assert json.loads(out_path.read_text(encoding="utf-8")) == payload
 
 
 def test_end_to_end_on_the_default_corpus(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,4 +255,11 @@ def test_end_to_end_on_the_default_corpus(tmp_path: Path, monkeypatch: pytest.Mo
     written = json.loads(out.read_text(encoding="utf-8"))
     assert written["passed_all_gates"] is True
     assert written["summary"][0]["gated_passed"] == 1
-    assert "original seed 20260731: 1/2 passed (gated 1/1)" in lines
+    assert any(line.startswith("original seed 20260731: 1/2 passed (gated 1/1)") for line in lines)
+    # the "hours" case's real, grounded answer on the default corpus carries citations that
+    # resolve and quote verbatim; the "broken" case never reaches `ctx.ask`.
+    citations = written["summary"][0]["citations"]
+    assert citations["checked"] >= 1
+    assert citations == {"checked": citations["checked"], "verbatim_and_resolving": citations["checked"],
+                         "percent": 100.0}
+    assert any("citations:" in line and "100.0%" in line for line in lines)

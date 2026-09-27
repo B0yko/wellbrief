@@ -32,6 +32,10 @@ from ..miner import classify_many
 from ..narrate import Narrator, OfflineNarrator, llm as narrate_llm, verify as narrate_verify
 from ..qa import ask as product_ask
 from ..riskbrief import build_brief, verify_brief
+from ..search import (
+    ABLATION_MODES as ABLATION_MODES,  # re-exported for `evals.ablation`
+    MODE_LABELS as MODE_LABELS,
+)
 from ..store import Store
 from ..workspace import build_searcher
 
@@ -196,6 +200,12 @@ class Workspace:
             warnings=list(answer.citation_warnings),
             narrator_rejected=answer.narrator_rejected,
         )
+
+    def search_ranking(self, question: str, mode: str, top_k: int = 8) -> list[str]:
+        """The document ranking of one retrieval mode (`search.ABLATION_MODES`), for the
+        retrieval ablation (`eval --ablation`) alone; `ask` and `brief` never pass `mode`."""
+        hits, _ = self.searcher.search(question, top_k=top_k, mode=mode)
+        return [h.doc_id for h in hits]
 
     def verify_fault_injection(self, question: str, top_k: int = 8) -> VerifierFaultResult:
         """Probe `narrate.verify` with every fault kind it is meant to catch, over a real,
