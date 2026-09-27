@@ -1,11 +1,11 @@
 # Air-gapped install
 
 wellbrief never makes an outbound network call on its own (see the network guard in
-`selfcheck`'s output below), so it installs and runs the same way on a machine with no
-internet access at all. Two paths are verified here: a **wheelhouse** (a folder of `.whl`
-files carried over on removable media) and a **saved image** (a `docker save`/`docker load`
-tarball). Both commands below were run for real; the output is trimmed but otherwise as
-printed.
+`selfcheck`'s output below), so it installs and runs the same way with no internet access at
+all. Two paths are verified below, both run for real (output trimmed, otherwise as printed):
+
+- **Wheelhouse** — a folder of `.whl` files carried over on removable media.
+- **Saved image** — a `docker save`/`docker load` tarball.
 
 ## Path 1: wheelhouse
 

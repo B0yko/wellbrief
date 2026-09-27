@@ -1,0 +1,114 @@
+<svg viewBox="0 0 1200 420" width="1200" height="420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="wellbrief overview: well files on the left, the offline wellbrief engine in the centre, a cited answer and a pre-spud risk brief on the right">
+  <title>wellbrief at a glance (dark theme)</title>
+
+  <defs>
+    
+    <marker id="arrow1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3c4a58"/>
+    </marker>
+    
+    <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3c4a58"/>
+    </marker>
+    
+    <marker id="arrow3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3c4a58"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="1198" height="418" rx="18" fill="#1a2027" stroke="#2c3540" stroke-width="1.5"/>
+
+  <text x="46" y="46" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.2" fill="#7c8794">YOUR WELL FILES</text>
+  <text x="590" y="122" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.2" fill="#7c8794">OFFLINE ENGINE</text>
+  <text x="806" y="46" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" letter-spacing="1.2" fill="#7c8794">WHAT YOU GET</text>
+
+  <g>
+    <rect x="45" y="71" width="320" height="54" rx="8" fill="#0d1014" stroke="#2c3540" stroke-width="1"/>
+    <rect x="40" y="66" width="320" height="54" rx="8" fill="#1a2027" stroke="#3c4a58" stroke-width="1.25"/>
+    <path d="M 54 80.0 L 69 80.0 L 76 87.0 L 76 106.0 L 54 106.0 Z"
+          fill="#1c2f3f" stroke="#6fa8d8" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M 69 80.0 L 69 87.0 L 76 87.0 Z" fill="#1a2027" stroke="#6fa8d8" stroke-width="1" stroke-linejoin="round"/>
+    <line x1="59" y1="93.0" x2="71" y2="93.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <line x1="59" y1="98.0" x2="67" y2="98.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <text x="90" y="98.0" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#e6e9ed">Daily drilling reports</text>
+    <rect x="296" y="80.0" width="52" height="26" rx="13" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="322" y="98.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#a7b0ba">.txt</text>
+  </g>
+  <g>
+    <rect x="45" y="143" width="320" height="54" rx="8" fill="#0d1014" stroke="#2c3540" stroke-width="1"/>
+    <rect x="40" y="138" width="320" height="54" rx="8" fill="#1a2027" stroke="#3c4a58" stroke-width="1.25"/>
+    <path d="M 54 152.0 L 69 152.0 L 76 159.0 L 76 178.0 L 54 178.0 Z"
+          fill="#1c2f3f" stroke="#6fa8d8" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M 69 152.0 L 69 159.0 L 76 159.0 Z" fill="#1a2027" stroke="#6fa8d8" stroke-width="1" stroke-linejoin="round"/>
+    <line x1="59" y1="165.0" x2="71" y2="165.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <line x1="59" y1="170.0" x2="67" y2="170.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <text x="90" y="170.0" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#e6e9ed">End-of-well reports</text>
+    <rect x="296" y="152.0" width="52" height="26" rx="13" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="322" y="170.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#a7b0ba">.pdf</text>
+  </g>
+  <g>
+    <rect x="45" y="215" width="320" height="54" rx="8" fill="#0d1014" stroke="#2c3540" stroke-width="1"/>
+    <rect x="40" y="210" width="320" height="54" rx="8" fill="#1a2027" stroke="#3c4a58" stroke-width="1.25"/>
+    <path d="M 54 224.0 L 69 224.0 L 76 231.0 L 76 250.0 L 54 250.0 Z"
+          fill="#1c2f3f" stroke="#6fa8d8" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M 69 224.0 L 69 231.0 L 76 231.0 Z" fill="#1a2027" stroke="#6fa8d8" stroke-width="1" stroke-linejoin="round"/>
+    <line x1="59" y1="237.0" x2="71" y2="237.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <line x1="59" y1="242.0" x2="67" y2="242.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <text x="90" y="242.0" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#e6e9ed">Incident reports</text>
+    <rect x="296" y="224.0" width="52" height="26" rx="13" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="322" y="242.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#a7b0ba">.docx</text>
+  </g>
+  <g>
+    <rect x="45" y="287" width="320" height="54" rx="8" fill="#0d1014" stroke="#2c3540" stroke-width="1"/>
+    <rect x="40" y="282" width="320" height="54" rx="8" fill="#1a2027" stroke="#3c4a58" stroke-width="1.25"/>
+    <path d="M 54 296.0 L 69 296.0 L 76 303.0 L 76 322.0 L 54 322.0 Z"
+          fill="#1c2f3f" stroke="#6fa8d8" stroke-width="1.1" stroke-linejoin="round"/>
+    <path d="M 69 296.0 L 69 303.0 L 76 303.0 Z" fill="#1a2027" stroke="#6fa8d8" stroke-width="1" stroke-linejoin="round"/>
+    <line x1="59" y1="309.0" x2="71" y2="309.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <line x1="59" y1="314.0" x2="67" y2="314.0" stroke="#6fa8d8" stroke-width="1.4"/>
+    <text x="90" y="314.0" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#e6e9ed">NPT ledger</text>
+    <rect x="296" y="296.0" width="52" height="26" rx="13" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="322" y="314.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="12.5" font-weight="600" fill="#a7b0ba">.csv</text>
+  </g>
+
+  <rect x="440" y="140" width="300" height="180" rx="16" fill="#1c2f3f" stroke="#6fa8d8" stroke-width="1.5"/>
+  <text x="590.0" y="186" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="27" font-weight="700" fill="#6fa8d8">wellbrief</text>
+  <text x="590.0" y="210" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#a7b0ba">cited answers + risk briefs</text>
+  <g>
+    <rect x="482" y="232" width="82" height="28" rx="14.0" fill="#14291d" stroke="#6fcf9a" stroke-width="1"/>
+    <text x="523.0" y="250.55" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#6fcf9a">offline</text>
+  </g>
+  <g>
+    <rect x="576" y="232" width="104" height="28" rx="14.0" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="628.0" y="250.55" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#a7b0ba">1 dependency</text>
+  </g>
+  <g>
+    <rect x="502.0" y="272" width="176" height="28" rx="14.0" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="590.0" y="290.55" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#a7b0ba">no model download</text>
+  </g>
+
+  <rect x="800" y="66" width="360" height="138" rx="14" fill="#1a2027" stroke="#2c3540" stroke-width="1.25"/>
+  <text x="818" y="96" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="700" fill="#e6e9ed">Cited answer</text>
+  <rect x="866.2" y="115.5" width="112.39999999999999" height="20.5" rx="3" fill="#332a12" stroke="#e0b458" stroke-width="1"/>
+  <text x="818" y="128" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="14.5" fill="#e6e9ed">… the <tspan fill="#e6e9ed">stuck string</tspan> at 1,074 m.</text>
+  <g>
+    <rect x="818" y="146" width="168" height="26" rx="13.0" fill="#0d1014" stroke="#3c4a58" stroke-width="1"/>
+    <text x="902.0" y="163.2" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="12" font-weight="600" fill="#a7b0ba">[DDR-ORD-107-014]</text>
+  </g>
+
+  <rect x="800" y="226" width="360" height="158" rx="14" fill="#1a2027" stroke="#2c3540" stroke-width="1.25"/>
+  <text x="818" y="256" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="700" fill="#e6e9ed">Pre-spud risk brief</text>
+  <text x="818" y="278" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="0.4" fill="#7c8794">RISK</text>
+  <text x="1046" y="278" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="0.4" fill="#7c8794">PROB</text>
+  <text x="1142" y="278" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="0.4" fill="#7c8794">EXPECTED</text>
+  <line x1="818" y1="287" x2="1142" y2="287" stroke="#2c3540" stroke-width="1"/>
+  <text x="818" y="312" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#e6e9ed">Downhole tool failure (MWD)</text>
+  <text x="1046" y="312" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e0b458">93%</text>
+  <text x="1142" y="312" text-anchor="end" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="13" font-weight="600" fill="#e6e9ed">$37,253</text>
+  <text x="818" y="346" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" fill="#e6e9ed">Stuck pipe / pack-off</text>
+  <text x="1046" y="346" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e0b458">36%</text>
+  <text x="1142" y="346" text-anchor="end" font-family="ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, monospace" font-size="13" font-weight="600" fill="#e6e9ed">$20,036</text>
+
+  <line x1="368" y1="228" x2="434" y2="228" stroke="#3c4a58" stroke-width="2.5" marker-end="url(#arrow1)"/>
+  <path d="M 742 192 C 772 175, 772 150, 796 137" fill="none" stroke="#3c4a58" stroke-width="2.5" marker-end="url(#arrow2)"/>
+  <path d="M 742 268 C 772 285, 772 300, 796 302" fill="none" stroke="#3c4a58" stroke-width="2.5" marker-end="url(#arrow3)"/>
+</svg>
