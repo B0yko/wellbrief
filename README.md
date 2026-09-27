@@ -398,23 +398,22 @@ and still cleared at scale 10. Reproduce: `wellbrief bench --scale 1,10 --out re
 #### 9. Offline proof
 
 ```
-$ docker build -t wellbrief:local .
-   (274 MB image, python:3.12-slim base)
+$ docker pull ghcr.io/b0yko/wellbrief:0.1.0      # linux/amd64 and linux/arm64, python:3.12-slim base
 
-$ docker run --rm --network none wellbrief:local selfcheck
+$ docker run --rm --network none ghcr.io/b0yko/wellbrief:0.1.0 selfcheck
 wellbrief selfcheck (seed 20260731)
-  corpus generate    0.152s
-  ingest             1.906s
-  index              1.158s
-  eval              13.753s
+  corpus generate    0.183s
+  ingest             1.970s
+  index              1.127s
+  eval              13.966s
   brief verify       0.058s
 outbound connection attempts: 0
 guard self-test: blocked 1/1
 selfcheck: PASS
 ```
 
-- Re-run today (2026-09-27) and consistent with the same check recorded when the image was
-  first built.
+- Run on the published image (2026-09-27, Apple M5, arm64); a local `docker build -t wellbrief:local .`
+  gives the same lines, and CI runs the same check on every push.
 - `wellbrief eval --suite all` on its own also reports "outbound connection attempts: 0" across
   the full suite of 77 gated cases.
 - `docs/airgapped-install.md` additionally verifies a wheelhouse install
