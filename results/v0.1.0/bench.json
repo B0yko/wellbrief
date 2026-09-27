@@ -1,0 +1,88 @@
+{
+ "metadata": {
+  "wellbrief_version": "0.1.0",
+  "date_utc": "2026-09-27T09:18:40Z",
+  "command": "wellbrief bench --scale 1,10 --out results/v0.1.0/bench.json",
+  "scales": [
+   1,
+   10
+  ],
+  "options": {
+   "warm_repeats": 20,
+   "seed": 20260731
+  },
+  "python": {
+   "version": "3.12.14",
+   "implementation": "CPython"
+  },
+  "hardware": {
+   "cpu": "Apple M5",
+   "ram_gb": 24.0,
+   "os": "macOS 26.6.2",
+   "arch": "arm64"
+  },
+  "git": {
+   "sha": "e875f5a4891d5e4b2a192dc04e2cbfdc87a6df18",
+   "dirty": false
+  }
+ },
+ "demo_startup_seconds": {
+  "mixed": 2.4,
+  "txt": 2.31
+ },
+ "demo_target_seconds": 30.0,
+ "ask_p95_target_ms": 500.0,
+ "scales": [
+  {
+   "fields": [
+    "Orrindale",
+    "Vessra South"
+   ],
+   "index_build_seconds": 1.0188,
+   "index_bytes": 4889662,
+   "cold_start_load_seconds": 0.0267,
+   "ask": {
+    "p50_ms": 6.29,
+    "p95_ms": 10.32,
+    "samples": 680
+   },
+   "brief": {
+    "p50_ms": 25.49,
+    "p95_ms": 28.97,
+    "samples": 40
+   },
+   "peak_rss_mib": 116.6,
+   "ingest_seconds": 0.9564,
+   "documents": 1446,
+   "npt_events": 534,
+   "scale": 1,
+   "corpus_generation_seconds": 0.1642
+  },
+  {
+   "fields": [
+    "Orrindale",
+    "Vessra South"
+   ],
+   "index_build_seconds": 10.1437,
+   "index_bytes": 48938668,
+   "cold_start_load_seconds": 0.2741,
+   "ask": {
+    "p50_ms": 37.1,
+    "p95_ms": 89.23,
+    "samples": 680
+   },
+   "brief": {
+    "p50_ms": 136.47,
+    "p95_ms": 181.23,
+    "samples": 40
+   },
+   "peak_rss_mib": 713.3,
+   "ingest_seconds": 10.2839,
+   "documents": 14086,
+   "npt_events": 4461,
+   "scale": 10,
+   "corpus_generation_seconds": 1.6679
+  }
+ ],
+ "peak_rss_mib": 713.3
+}
