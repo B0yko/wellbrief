@@ -75,11 +75,16 @@ def running_server(ws: Workspace) -> Iterator[str]:
         thread.join(timeout=5)
 
 
+def _post_headers(base: str) -> dict[str, str]:
+    """What a same-origin browser `fetch` sends with a JSON `POST`."""
+    return {"Content-Type": "application/json", "Origin": base}
+
+
 def _request(base: str, path: str, *, method: str = "GET",
             body: dict[str, Any] | None = None) -> tuple[int, dict[str, str], bytes]:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = Request(base + path, data=data, method=method,
-                  headers={"Content-Type": "application/json"} if data is not None else {})
+                  headers=_post_headers(base) if data is not None else {})
     try:
         with urlopen(req, timeout=10) as resp:
             return resp.status, dict(resp.headers), resp.read()
@@ -412,7 +417,7 @@ def test_brief_rejects_a_td_that_overflows_to_infinity(running_server: str) -> N
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         body = b'{"field": "Orrindale", "well": "X-1", "td": 1e400}'
-        conn.request("POST", "/api/brief", body=body, headers={"Content-Length": str(len(body))})
+        conn.request("POST", "/api/brief", body=body, headers=_post_headers(running_server))
         resp = conn.getresponse()
         payload = json.loads(resp.read().decode("utf-8"))
         assert resp.status == 400
@@ -428,7 +433,7 @@ def test_brief_rejects_a_nan_spread_rate(running_server: str) -> None:
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         body = b'{"field": "Orrindale", "well": "X-1", "td": 3000, "spread_rate": NaN}'
-        conn.request("POST", "/api/brief", body=body, headers={"Content-Length": str(len(body))})
+        conn.request("POST", "/api/brief", body=body, headers=_post_headers(running_server))
         resp = conn.getresponse()
         payload = json.loads(resp.read().decode("utf-8"))
         assert resp.status == 400
@@ -502,6 +507,171 @@ def test_brief_records_an_audit_line(running_server: str, ws: Workspace) -> None
 
 
 # ---------------------------------------------------------------------------
+# Host, Origin and Content-Type checks (DNS rebinding and cross-site requests)
+# ---------------------------------------------------------------------------
+
+
+def _raw(base: str, method: str, path: str, headers: dict[str, str],
+         body: bytes | None = None) -> tuple[int, dict[str, Any]]:
+    """One request with exactly the given headers (`Host` included, `http.client` adds none)."""
+    host, _, port_str = base.removeprefix("http://").partition(":")
+    conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
+    try:
+        conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+        for name, value in headers.items():
+            conn.putheader(name, value)
+        if body is not None:
+            conn.putheader("Content-Length", str(len(body)))
+        conn.endheaders(body)
+        resp = conn.getresponse()
+        return resp.status, json.loads(resp.read().decode("utf-8") or "{}")
+    finally:
+        conn.close()
+
+
+def _port(base: str) -> str:
+    return base.rpartition(":")[2]
+
+
+@pytest.mark.parametrize("host_header", ["evil.example", "evil.example:8765", "rebind.test:{port}",
+                                         "127.0.0.1.evil.example:{port}", "localhost:{port}.evil.example",
+                                         "127.0.0.1:notaport", "", "10.0.0.5:{port}"])
+@pytest.mark.parametrize(("method", "path"), [("GET", "/api/status"), ("GET", "/api/doc/EOWR-ORD-101"),
+                                              ("GET", "/")])
+def test_a_foreign_host_header_is_rejected(running_server: str, host_header: str, method: str,
+                                           path: str) -> None:
+    status, payload = _raw(running_server, method, path,
+                           {"Host": host_header.format(port=_port(running_server))})
+    assert status == 403
+    assert "Host" in payload.get("error", "")
+
+
+def test_a_request_with_no_host_header_is_rejected(running_server: str) -> None:
+    status, _payload = _raw(running_server, "GET", "/api/status", {})
+    assert status == 403
+
+
+@pytest.mark.parametrize("name", ["127.0.0.1", "localhost", "LOCALHOST", "[::1]"])
+def test_loopback_host_names_are_accepted_on_the_bound_port(running_server: str, name: str) -> None:
+    status, _payload = _raw(running_server, "GET", "/api/status", {"Host": f"{name}:{_port(running_server)}"})
+    assert status == 200
+
+
+def test_a_loopback_host_name_is_accepted_on_any_port(running_server: str) -> None:
+    # A container's published port need not equal the port the server bound inside it.
+    status, _payload = _raw(running_server, "GET", "/api/status", {"Host": "localhost:9000"})
+    assert status == 200
+
+
+def test_the_host_check_covers_every_method(running_server: str) -> None:
+    status, _payload = _raw(running_server, "PUT", "/api/status", {"Host": "evil.example"})
+    assert status == 403
+
+
+def test_the_configured_bind_host_is_an_allowed_host(tmp_path_factory: pytest.TempPathFactory) -> None:
+    # The container case: bound to 0.0.0.0, reached as localhost (published port) or by the
+    # bind address itself; a different name is still refused.
+    workspace = Workspace(home=tmp_path_factory.mktemp("bind-home"), name="ws")
+    workspace.root.mkdir(parents=True, exist_ok=True)
+    mini.store(workspace.root).close()
+    httpd = server.create_server(workspace, OfflineNarrator(), host="0.0.0.0", port=0)
+    thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{httpd.server_port}"
+        port = httpd.server_port
+        for host_header, expected in [(f"0.0.0.0:{port}", 200), (f"localhost:{port}", 200),
+                                      (f"127.0.0.1:{port}", 200), (f"evil.example:{port}", 403),
+                                      ("0.0.0.0:1", 403)]:
+            status, _payload = _raw(base, "GET", "/api/status", {"Host": host_header})
+            assert status == expected, host_header
+        # A same-origin UI POST from the published address works too.
+        body = json.dumps({"question": "Stuck pipe on Orrindale"}).encode()
+        status, _payload = _raw(base, "POST", "/api/ask",
+                                {"Host": f"localhost:{port}", "Content-Type": "application/json",
+                                 "Origin": f"http://localhost:{port}"}, body)
+        assert status == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def _post_ask(base: str, extra: dict[str, str], *, host: str | None = None) -> int:
+    body = json.dumps({"question": "Stuck pipe on Orrindale"}).encode()
+    headers = {"Host": host or f"127.0.0.1:{_port(base)}", **extra}
+    status, _payload = _raw(base, "POST", "/api/ask", headers, body)
+    return status
+
+
+@pytest.mark.parametrize("origin", ["http://evil.example", "https://evil.example", "null",
+                                    "http://127.0.0.1.evil.example", "https://127.0.0.1:{port}",
+                                    "http://127.0.0.1:{port}/x", "http://evil.example:{port}", "", "ftp://localhost"])
+def test_a_post_with_a_foreign_origin_is_rejected(running_server: str, origin: str) -> None:
+    headers = {"Content-Type": "application/json", "Origin": origin.format(port=_port(running_server))}
+    assert _post_ask(running_server, headers) == 403
+
+
+def test_a_post_with_no_origin_is_rejected(running_server: str) -> None:
+    assert _post_ask(running_server, {"Content-Type": "application/json"}) == 403
+
+
+def test_a_foreign_origin_never_reaches_the_audit_log(ws: Workspace, running_server: str) -> None:
+    before = ws.audit_path.read_text(encoding="utf-8") if ws.audit_path.exists() else ""
+    _post_ask(running_server, {"Content-Type": "application/json", "Origin": "http://evil.example"})
+    after = ws.audit_path.read_text(encoding="utf-8") if ws.audit_path.exists() else ""
+    assert after == before
+
+
+@pytest.mark.parametrize("origin", ["http://127.0.0.1:{port}", "http://localhost:{port}",
+                                    "http://[::1]:{port}", "http://localhost:9000"])
+def test_a_post_with_a_loopback_origin_is_accepted(running_server: str, origin: str) -> None:
+    headers = {"Content-Type": "application/json", "Origin": origin.format(port=_port(running_server))}
+    assert _post_ask(running_server, headers) == 200
+
+
+def test_a_post_with_a_foreign_host_is_rejected_even_with_a_matching_origin(running_server: str) -> None:
+    # The DNS-rebinding shape: the page's own origin and Host both name the attacker's hostname.
+    port = _port(running_server)
+    headers = {"Content-Type": "application/json", "Origin": f"http://rebind.test:{port}"}
+    assert _post_ask(running_server, headers, host=f"rebind.test:{port}") == 403
+
+
+@pytest.mark.parametrize("content_type", ["text/plain", "text/plain;charset=UTF-8",
+                                          "application/x-www-form-urlencoded", "multipart/form-data",
+                                          "application/jsonx", "application/json-seq", ""])
+@pytest.mark.parametrize("path", ["/api/ask", "/api/brief"])
+def test_a_json_post_needs_the_json_content_type(running_server: str, content_type: str, path: str) -> None:
+    body = b'{"question": "Stuck pipe on Orrindale"}'
+    headers = {"Host": f"127.0.0.1:{_port(running_server)}", "Origin": running_server}
+    if content_type:
+        headers["Content-Type"] = content_type
+    status, payload = _raw(running_server, "POST", path, headers, body)
+    assert status == 415
+    assert "Content-Type" in payload["error"]
+
+
+@pytest.mark.parametrize("content_type", ["application/json; charset=utf-8", "Application/JSON"])
+def test_json_content_type_parameters_and_case_are_accepted(running_server: str, content_type: str) -> None:
+    status = _post_ask(running_server, {"Content-Type": content_type, "Origin": running_server})
+    assert status == 200
+
+
+def test_a_transfer_encoding_header_on_a_post_is_rejected(running_server: str) -> None:
+    body = b'{"question": "Stuck pipe on Orrindale"}'
+    status, _payload = _raw(running_server, "POST", "/api/ask",
+                            {"Host": f"127.0.0.1:{_port(running_server)}", "Origin": running_server,
+                             "Content-Type": "application/json", "Transfer-Encoding": "chunked"}, body)
+    assert status == 400
+
+
+def test_get_requests_need_no_origin(running_server: str) -> None:
+    host = f"127.0.0.1:{_port(running_server)}"
+    status, _payload = _raw(running_server, "GET", "/api/status", {"Host": host})
+    assert status == 200
+
+
+# ---------------------------------------------------------------------------
 # Request body size cap and malformed requests
 # ---------------------------------------------------------------------------
 
@@ -514,6 +684,8 @@ def test_oversized_request_body_is_rejected(running_server: str) -> None:
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         conn.putrequest("POST", "/api/ask", skip_host=False, skip_accept_encoding=True)
+        for name, value in _post_headers(running_server).items():
+            conn.putheader(name, value)
         conn.putheader("Content-Length", str(server.MAX_BODY_BYTES + 1))
         conn.endheaders()
         resp = conn.getresponse()
@@ -529,6 +701,8 @@ def test_missing_content_length_is_rejected(running_server: str) -> None:
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         conn.putrequest("POST", "/api/ask", skip_host=False, skip_accept_encoding=True)
+        for name, value in _post_headers(running_server).items():
+            conn.putheader(name, value)
         conn.endheaders()
         resp = conn.getresponse()
         assert resp.status == 411
@@ -542,7 +716,7 @@ def test_malformed_json_body_is_rejected(running_server: str) -> None:
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         body = b"{not json"
-        conn.request("POST", "/api/ask", body=body, headers={"Content-Length": str(len(body))})
+        conn.request("POST", "/api/ask", body=body, headers=_post_headers(running_server))
         resp = conn.getresponse()
         assert resp.status == 400
         resp.read()
@@ -556,7 +730,7 @@ def test_a_request_body_that_is_not_a_json_object_is_rejected(running_server: st
     conn = http.client.HTTPConnection(host, int(port_str), timeout=10)
     try:
         body = b"[1, 2, 3]"
-        conn.request("POST", "/api/ask", body=body, headers={"Content-Length": str(len(body))})
+        conn.request("POST", "/api/ask", body=body, headers=_post_headers(running_server))
         resp = conn.getresponse()
         assert resp.status == 400
         resp.read()

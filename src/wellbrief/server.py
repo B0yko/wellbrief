@@ -33,8 +33,20 @@ Security:
 - Every response carries `Content-Security-Policy: default-src 'self'`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`; every API response (JSON
   or a brief download) also carries `Cache-Control: no-store`.
+- The `Host` header of every request must name a loopback host (`localhost`, `127.0.0.1`,
+  `[::1]`, on any port, so a published container port that differs from the bound one still
+  works) or the configured `--host` with the bound port; anything else gets a 403. This is what
+  stops a DNS-rebinding page, whose requests carry its own hostname, from reading the API.
+- A `POST` must carry an `Origin` header whose host passes the same test (scheme `http`), or it
+  gets a 403: a page on another site cannot make the browser send one that matches, and a
+  request with no `Origin` at all is refused too. The bundled UI is same-origin, and browsers
+  always send `Origin` on a same-origin `POST`; a script calling the API sends
+  `Origin: http://127.0.0.1:<port>` itself.
+- A `POST` body must be declared `Content-Type: application/json` (any parameters allowed), or
+  the request gets a 415; a cross-site form or a `text/plain` request cannot set that type
+  without a CORS preflight, which this server never approves.
 - A request body over `MAX_BODY_BYTES`, or one with no `Content-Length` at all, is rejected before
-  it is read.
+  it is read; a request that also sets `Transfer-Encoding` is rejected as ambiguously framed.
 - Every numeric parameter (`td`, `top_k`, `spread_rate`, whether given as JSON or on a query
   string) is checked with `math.isfinite`: `NaN`/`Infinity`/`-Infinity` are rejected with a 400
   rather than flowing into a brief and its JSON response (where they would not round-trip through
@@ -71,7 +83,7 @@ from dataclasses import asdict, dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from . import __version__, analytics, audit, riskbrief
@@ -366,6 +378,9 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
         def log_message(self, log_format: str, *args: Any) -> None:
             pass  # a local developer tool's own request log adds noise, not information
 
+        def _srv(self) -> WellbriefHTTPServer:
+            return cast("WellbriefHTTPServer", self.server)
+
         # -- sending responses --------------------------------------------------
 
         def _send(self, status: HTTPStatus, body: bytes, content_type: str, *, no_store: bool,
@@ -391,7 +406,23 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
         def _send_error(self, status: HTTPStatus, message: str) -> None:
             self._send_json(status, {"error": message})
 
+        def _check_host(self) -> None:
+            if not self._srv().host_allowed(self.headers.get("Host", "")):
+                raise ApiError(HTTPStatus.FORBIDDEN, "Host header not allowed")
+
+        def _check_origin(self) -> None:
+            origin = self.headers.get("Origin", "")
+            scheme, _sep, host_port = origin.partition("://")
+            if scheme != "http" or "/" in host_port or not self._srv().host_allowed(host_port):
+                raise ApiError(HTTPStatus.FORBIDDEN, "Origin header missing or not allowed")
+
         def _read_json_body(self) -> dict[str, Any]:
+            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if content_type != "application/json":
+                raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                               "Content-Type must be application/json")
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "Transfer-Encoding is not supported")
             raw_length = self.headers.get("Content-Length")
             if raw_length is None:
                 raise ApiError(HTTPStatus.LENGTH_REQUIRED, "Content-Length is required")
@@ -424,6 +455,11 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
             self._dispatch("POST")
 
         def _not_get_or_post(self) -> None:
+            try:
+                self._check_host()
+            except ApiError as exc:
+                self._send_error(exc.status, exc.message)
+                return
             self._send_error(HTTPStatus.METHOD_NOT_ALLOWED,
                              f"{self.command} is not allowed; only GET and POST are")
 
@@ -442,6 +478,9 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
             parts = urlsplit(self.path)
             path, query = parts.path, parse_qs(parts.query)
             try:
+                self._check_host()
+                if method == "POST":
+                    self._check_origin()
                 self._route(method, path, query)
             except ApiError as exc:
                 self._send_error(exc.status, exc.message)
@@ -502,9 +541,30 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
 # ---------------------------------------------------------------------------
 
 
+_LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "[::1]"})
+_HOST_PORT = re.compile(r"(\[[0-9a-f:.]+\]|[a-z0-9._-]+)(?::([0-9]{1,5}))?")
+
+
 class WellbriefHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def __init__(self, server_address: tuple[str, int], handler: type[BaseHTTPRequestHandler]) -> None:
+        self.bind_host = server_address[0]
+        super().__init__(server_address, handler)
+
+    def host_allowed(self, host_port: str) -> bool:
+        """Whether a `Host` header value (or an `Origin`'s host part) names this server: a loopback
+        name on any numeric port (or none), or the configured bind host with the bound port."""
+        match = _HOST_PORT.fullmatch(host_port.lower())
+        if match is None:
+            return False
+        name, port = match.group(1), match.group(2)
+        if name in _LOOPBACK_NAMES:
+            return True
+        bind = self.bind_host.lower()
+        bind_name = f"[{bind}]" if ":" in bind else bind
+        return name == bind_name and port == str(self.server_port)
 
     def server_bind(self) -> None:
         """Bind without ever calling `socket.getfqdn` (see the module docstring).

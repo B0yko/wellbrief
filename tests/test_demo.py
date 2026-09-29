@@ -290,7 +290,8 @@ def _json(base: str, path: str, *, method: str = "GET", body: dict[str, Any] | N
           expect: int = 200) -> Any:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = Request(base.rstrip("/") + path, data=data, method=method,
-                 headers={"Content-Type": "application/json"} if data is not None else {})
+                 headers={"Content-Type": "application/json", "Origin": base.rstrip("/")}
+                 if data is not None else {})
     try:
         with urlopen(req, timeout=10) as resp:
             status, raw = resp.status, resp.read()

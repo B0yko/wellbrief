@@ -24,6 +24,10 @@ security issues:
   to execute as script or markup rather than being rendered as plain text.
 - Path traversal: any way for an ingest path, a document id, or an API parameter to read or write
   a file outside the intended workspace or ingest folder.
+- Cross-site or DNS-rebinding access to the local API: the server refuses a request whose `Host`
+  header is not a loopback name or the configured `--host`, and a `POST` whose `Origin` is missing
+  or foreign or whose `Content-Type` is not `application/json`. A way around those checks from a
+  web page is in scope.
 - A way for the cost ledger's budget stop to be bypassed, letting the `llm` narrator spend past
   `WELLBRIEF_BUDGET_USD`.
 

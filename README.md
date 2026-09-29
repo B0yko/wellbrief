@@ -443,7 +443,10 @@ selfcheck: PASS
   synthetic corpus's own sentence templates, not measured accuracy on a real field report's
   prose.
 - The tool is single-user, has no authentication, and binds to loopback by default; `serve`
-  prints a warning if told to bind anywhere else.
+  prints a warning if told to bind anywhere else. The API also refuses a request whose `Host`
+  header is not a loopback name or the configured `--host`, and a `POST` without a matching
+  `Origin` or without `Content-Type: application/json`, so a web page open in the same browser
+  cannot drive it.
 - Tiny local language models mostly fall back to the offline narrator (see
   [Narrator comparison](#7-narrator-comparison)) — by design: the verifier would rather show a
   grounded deterministic answer than an ungrounded fluent one.
