@@ -21,8 +21,8 @@ same-origin files and bar widths are set through `element.style` rather than inl
 attributes. All document text the UI renders goes through `textContent`, never innerHTML, so a
 report's own text can never execute as markup. The server also checks the `Host` header of every
 request (a loopback name, or the configured bind host with the bound port) and, on `POST`, the
-`Origin` and `Content-Type: application/json`, which closes DNS-rebinding and cross-site request
-paths to the unauthenticated API without adding a login.
+`Origin` (which must equal the `Host`) and `Content-Type: application/json`, which closes
+DNS-rebinding and cross-site request paths to the unauthenticated API without adding a login.
 
 ## Consequences
 

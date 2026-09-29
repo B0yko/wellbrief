@@ -96,7 +96,7 @@ def test_equipment_rig_repair_rate_ratio_is_about_12x(store: Store) -> None:
 
 def test_equipment_rule_catches_what_a_wells_affected_share_rule_would_miss(store: Store) -> None:
     """Rig-North: 3 of 3 wells affected (share 1.00). Rig-South: 2 of 3 (share 0.67).
-    share_ratio = 1.00 / 0.67 = 1.5, below a 2x threshold -- an example of the
+    share_ratio = 1.00 / 0.67 = 1.5, below a 2x threshold -- an example of
     a share-ratio rule missing this pattern. The hours-per-day ratio (12.0, see above) is
     what the product actually gates on."""
     share_north, share_south = 3 / 3, 2 / 3

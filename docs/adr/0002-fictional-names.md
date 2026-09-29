@@ -22,8 +22,9 @@ published in this repository, so that a real entity a query happened to turn up 
 written down here.
 
 One collision was found and acted on: an example CSV ledger's field name collided with a real,
-currently producing gas field, and was renamed. Every other name was kept as originally chosen. Both fields' generated documents also end with a fixed footer line stating
-that the operator, fields, wells, rigs and vendors are fictional.
+currently producing gas field, and was renamed. Every other name was kept as originally chosen. Both fields' generated
+documents also end with a fixed footer line stating that the operator, fields, wells, rigs and
+vendors are fictional.
 
 ## Consequences
 

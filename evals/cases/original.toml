@@ -2,9 +2,10 @@
 #
 # Questions and expectations use the fictional names of this repository. Gold
 # answers are not read from the product's own ledger (`rollup()` and
-# `store.npt()`), which would be circular; every gold answer is SQL over the truth database
-# that `wellbrief.evals` builds from the generator's `_truth.json` (tables
-# truth_events, truth_docs, truth_sentences, truth_wells, truth_patterns).
+# `store.npt()`), which would be circular; every gold answer is SQL over the
+# truth database that `wellbrief.evals` builds from the generator's
+# `_truth.json` (tables truth_events, truth_docs, truth_sentences, truth_wells,
+# truth_patterns).
 # Cited documents are resolved and quotes are checked against the generated
 # files, not against the product's store.
 #

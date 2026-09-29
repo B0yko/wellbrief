@@ -37,11 +37,11 @@ Security:
   `[::1]`, on any port, so a published container port that differs from the bound one still
   works) or the configured `--host` with the bound port; anything else gets a 403. This is what
   stops a DNS-rebinding page, whose requests carry its own hostname, from reading the API.
-- A `POST` must carry an `Origin` header whose host passes the same test (scheme `http`), or it
-  gets a 403: a page on another site cannot make the browser send one that matches, and a
-  request with no `Origin` at all is refused too. The bundled UI is same-origin, and browsers
-  always send `Origin` on a same-origin `POST`; a script calling the API sends
-  `Origin: http://127.0.0.1:<port>` itself.
+- A `POST` must carry an `Origin` header (scheme `http`) whose host and port equal the request's
+  own `Host` header and pass the same test, or it gets a 403: a page on another site or another
+  local port cannot make the browser send one that matches, and a request with no `Origin` at all
+  is refused too. The bundled UI is same-origin, and browsers always send `Origin` on a
+  same-origin `POST`; a script calling the API sends `Origin: http://127.0.0.1:<port>` itself.
 - A `POST` body must be declared `Content-Type: application/json` (any parameters allowed), or
   the request gets a 415; a cross-site form or a `text/plain` request cannot set that type
   without a CORS preflight, which this server never approves.
@@ -413,7 +413,9 @@ def _build_handler_class(ws: Workspace, narrator: Narrator) -> type[BaseHTTPRequ
         def _check_origin(self) -> None:
             origin = self.headers.get("Origin", "")
             scheme, _sep, host_port = origin.partition("://")
-            if scheme != "http" or "/" in host_port or not self._srv().host_allowed(host_port):
+            same_origin = host_port.lower() == self.headers.get("Host", "").lower()
+            if (scheme != "http" or "/" in host_port or not same_origin
+                    or not self._srv().host_allowed(host_port)):
                 raise ApiError(HTTPStatus.FORBIDDEN, "Origin header missing or not allowed")
 
         def _read_json_body(self) -> dict[str, Any]:

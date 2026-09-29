@@ -624,10 +624,23 @@ def test_a_foreign_origin_never_reaches_the_audit_log(ws: Workspace, running_ser
 
 
 @pytest.mark.parametrize("origin", ["http://127.0.0.1:{port}", "http://localhost:{port}",
-                                    "http://[::1]:{port}", "http://localhost:9000"])
+                                    "http://[::1]:{port}"])
 def test_a_post_with_a_loopback_origin_is_accepted(running_server: str, origin: str) -> None:
-    headers = {"Content-Type": "application/json", "Origin": origin.format(port=_port(running_server))}
-    assert _post_ask(running_server, headers) == 200
+    origin = origin.format(port=_port(running_server))
+    headers = {"Content-Type": "application/json", "Origin": origin}
+    assert _post_ask(running_server, headers, host=origin.removeprefix("http://")) == 200
+
+
+def test_a_post_from_another_local_port_is_rejected(running_server: str) -> None:
+    # Loopback on any port passes the Host test, but the Origin must be this server's own.
+    headers = {"Content-Type": "application/json", "Origin": "http://localhost:9000"}
+    assert _post_ask(running_server, headers) == 403
+
+
+def test_a_post_whose_origin_matches_a_loopback_host_on_another_port_is_accepted(running_server: str) -> None:
+    # A published container port: the browser sends the same host:port in Host and Origin.
+    headers = {"Content-Type": "application/json", "Origin": "http://localhost:9000"}
+    assert _post_ask(running_server, headers, host="localhost:9000") == 200
 
 
 def test_a_post_with_a_foreign_host_is_rejected_even_with_a_matching_origin(running_server: str) -> None:
