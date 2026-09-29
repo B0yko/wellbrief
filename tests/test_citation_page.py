@@ -1,9 +1,8 @@
 """`quotes.quote_page`: mapping a quote's raw offset to a 1-based page via `Document.page_map`.
 
-No reader populates `page_map` yet (PDF reading is a later phase), so every
-citation's `page` is `None` today; this tests the mapping in isolation with a
-document built directly with one, and that `qa.ask` and `riskbrief` leave
-`page` at `None` for the (page-map-less) documents they actually see.
+Only the PDF reader records a `page_map`, so a citation from a text document has `page` set to
+`None`; this tests the mapping in isolation with a document built directly with one, and that
+`qa.ask` leaves `page` at `None` for the (page-map-less) text documents it sees.
 """
 
 from __future__ import annotations
@@ -53,10 +52,9 @@ def test_an_empty_quote_is_none() -> None:
     assert quote_page(_doc(PAGE_MAP), "") is None
 
 
-def test_page_is_none_for_every_citation_today(tmp_path: Path) -> None:
-    """End to end: `ask` and `riskbrief` build `Citation`s from real (txt-ingested, so
-    page-map-less) documents; `page` is always `None` until a PDF reader (a later
-    phase) starts recording `page_map`."""
+def test_page_is_none_for_text_documents(tmp_path: Path) -> None:
+    """End to end: `ask` builds `Citation`s from real (txt-ingested, so page-map-less)
+    documents; `page` is `None` because only PDFs record a `page_map`."""
     import mini_workspace as mini
     from wellbrief.qa import ask
 

@@ -1,5 +1,5 @@
-# Extended suite: what the specification expects of v0.1, written before the
-# fixes it measures. Cases are never removed or loosened after the first run;
+# Extended suite: what v0.1 is expected to do, written before the fixes it
+# measures. Cases are never removed or loosened after the first run;
 # every change is listed in evals/CHANGES.md with its reason.
 #
 # Gold answers and relevance labels are SQL over the truth database built from

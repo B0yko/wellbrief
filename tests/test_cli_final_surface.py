@@ -1,5 +1,5 @@
 """The final CLI surface: the global `--narrator` flag, per-command `--json`, `npt --since`
-in place of the old `digest` command, the removed prototype-era flags, and the audit log
+in place of the old `digest` command, the removed flags, and the audit log
 every `ask` and `brief` appends to (`audit.jsonl` inside the workspace).
 
 `test_cli_workspace.py` covers `build`/`--db` (already removed before this module existed)
@@ -35,7 +35,7 @@ def corpus_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Removed prototype leftovers
+# Removed flags and commands
 # ---------------------------------------------------------------------------
 
 def test_digest_is_no_longer_a_command(capsys: pytest.CaptureFixture[str]) -> None:

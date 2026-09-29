@@ -161,7 +161,7 @@ def test_markdown_rendering_flags_a_failed_verification(store: Store) -> None:
 
 def test_markdown_rendering_shows_the_real_provenance_block(store: Store) -> None:
     """The two tests above build a brief with no `provenance=`, so `render_markdown`'s
-    `if prov:` branch (the actual provenance lines) never ran; this builds one the way
+    `if prov:` branch (the actual provenance lines) never ran; this test builds one the way
     `cli.cmd_brief` does, with `build_provenance`'s own output, and checks its content
     reaches the page instead of only checking the branch does not crash."""
     check = {"ok": True, "citations_checked": 7, "problems": []}

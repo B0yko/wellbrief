@@ -1,15 +1,14 @@
-# The original 17-case harness, ported from the earlier prototype.
+# The original 17-case harness.
 #
-# Every question and expectation is the prototype's, with the fictional names
-# of this repository. What changed is where the gold answers come from: the
-# prototype asked the product's own ledger (`rollup()` and `store.npt()`),
-# which is circular; here every gold answer is SQL over the truth database
+# Questions and expectations use the fictional names of this repository. Gold
+# answers are not read from the product's own ledger (`rollup()` and
+# `store.npt()`), which would be circular; every gold answer is SQL over the truth database
 # that `wellbrief.evals` builds from the generator's `_truth.json` (tables
 # truth_events, truth_docs, truth_sentences, truth_wells, truth_patterns).
 # Cited documents are resolved and quotes are checked against the generated
 # files, not against the product's store.
 #
-# Pass rules (unchanged from the prototype):
+# Pass rules:
 #   retrieval          ask(question, top 8): at least one cited document; every cited
 #                      document from `field`; at least `min_hits` (default 1) cited
 #                      documents from a well in `gold_sql` (the wells that had the
@@ -19,7 +18,7 @@
 #   grounding          the questions of `from_cases`, asked with top 6: every citation
 #                      names a document of the corpus and its quote is verbatim in it
 #   discovery          the top pattern the product finds in `field` has this code and
-#                      formation (fixed expectation, as in the prototype)
+#                      formation (fixed expectation)
 #   brief-citations    brief for `well` / `td_m`: every citation verbatim in its source
 #                      document, and the product's own verification passes
 #   brief-mitigations  at least one risk of that brief carries a written mitigation

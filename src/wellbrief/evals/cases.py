@@ -39,7 +39,7 @@ _BRIEF = {"field", "well", "td_m"}
 
 # category -> (required keys, optional keys), besides id / category / gate / reason.
 CATEGORIES: dict[str, tuple[set[str], set[str]]] = {
-    # original suite: the prototype harness rules
+    # original suite: the harness rules
     "retrieval": ({"question", "field"}, {"gold_sql", "doc_type", "top_k", "min_hits"}),
     "grounding": ({"from_cases"}, {"top_k"}),
     "discovery": ({"field", "code", "formation"}, {"precondition_sql"}),

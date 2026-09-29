@@ -33,7 +33,7 @@ def test_the_default_directory_falls_back_to_the_packaged_one(
     assert default_dir() == packaged_cases
 
 
-def test_original_suite_has_the_17_prototype_cases() -> None:
+def test_original_suite_has_17_cases() -> None:
     cases = load_suite(CASES, "original")
     assert len(cases) == 17
     counts = Counter(c.category for c in cases)

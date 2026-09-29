@@ -1,6 +1,6 @@
 """The CLI's workspace flow: `corpus generate` -> `ingest` -> `index` -> `status` -> `ask` / `brief`.
 
-The prototype's `build` command and `--db` flag are gone: the
+There is no `build` command or `--db` flag: the
 workspace is chosen with `--workspace` / `WELLBRIEF_WORKSPACE`, under
 `$WELLBRIEF_HOME` / `WELLBRIEF_HOME` (default `~/.wellbrief`, never touched by
 these tests -- `WELLBRIEF_HOME` is always pointed at a tmp dir).

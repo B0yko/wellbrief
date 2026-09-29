@@ -156,7 +156,7 @@ def _outcome(problems: Sequence[str], ok_detail: str = "ok", **metrics: Any) -> 
 # ---------------------------------------------------------------------------
 
 def check_retrieval(case: Case, ctx: Context) -> Outcome:
-    """The prototype's retrieval rule.
+    """The original suite's retrieval rule.
 
     Right field, a cited report from a well that had the code, the doc type, no warnings.
     """

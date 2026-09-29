@@ -17,14 +17,12 @@ asset at worst.
 Every name used by the corpus generator (`Quillfen Energy`, `Orrindale`, `Vessra South`, their
 rigs, MWD tools and formations, and the names introduced later by `examples/`) was checked
 against public search results before it was used, specifically for a collision with a real
-operator, field, rig contractor or downhole-tool vendor. The check log — the queries run, the
-date and the result for each name — is kept in the project's own development notes, outside this
-repository, precisely so that a real entity a query happened to turn up is never itself written
-down in a place this repository's history would carry forward.
+operator, field, rig contractor or downhole-tool vendor. The queries and results are not
+published in this repository, so that a real entity a query happened to turn up is never itself
+written down here.
 
 One collision was found and acted on: an example CSV ledger's field name collided with a real,
-currently producing gas field, and was renamed before its first commit. Every other name was kept
-as originally chosen. Both fields' generated documents also end with a fixed footer line stating
+currently producing gas field, and was renamed. Every other name was kept as originally chosen. Both fields' generated documents also end with a fixed footer line stating
 that the operator, fields, wells, rigs and vendors are fictional.
 
 ## Consequences

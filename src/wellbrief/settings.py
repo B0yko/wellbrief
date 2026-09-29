@@ -27,8 +27,8 @@ Precedence, highest first: CLI flags; the environment variables
 `ingest --config PATH` or (when `--config` is not given) the ingested
 folder's own `wellbrief.toml`; `<workspace>/wellbrief.toml`; the built-in
 defaults in `config.py`. Only `home`, `workspace_name` and `spread_rate` have
-an environment variable in this version (the narrator/LLM ones are a later
-phase); the parse, detection, taxonomy, CSV, retrieval and risk tables are
+an environment variable here (the narrator and LLM ones, `WELLBRIEF_LLM_*`, are read by the
+CLI and `egress.py`, not by this module); the parse, detection, taxonomy, CSV, retrieval and risk tables are
 `wellbrief.toml`-only, so for them the precedence collapses to CLI (`top_k`,
 `max_risks`, where a command exposes one) > ingest config/folder toml (parse,
 detection, taxonomy, CSV only -- these matter only while ingesting) >

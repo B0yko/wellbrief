@@ -102,11 +102,9 @@ def _file_records(docs: list[Document]) -> list[FileRecord]:
 
     `sha256`/`size` are computed from the document's (already decoded) text
     rather than re-reading the file, which is exact for the UTF-8, BOM-less
-    text this phase's reader produces; a byte-accurate reader (a later
-    phase) will recompute both from the raw file bytes instead, which
-    is also the basis for the incremental, sha256-skip ingest that comes with
-    it. `mtime` is left at 0.0 here for the same reason: it is not used until
-    that incremental check exists.
+    text this simple loader produces. `ingest_folder` computes both from the
+    raw file bytes instead, and that hash is what its incremental skip keys on.
+    `mtime` is left at 0.0 here because nothing reads it.
     """
     return [
         FileRecord(
@@ -159,7 +157,7 @@ def _wells_from_docs(docs: list[Document]) -> list[Well]:
 UNASSIGNED_FIELD = "unassigned"
 CSV_DOC_TYPE = "csv"
 
-# The DDR/EOWR/incident readers this phase wires in; a CSV ledger is handled on its own
+# The DDR/EOWR/incident readers handled by `_read_document_file`; a CSV ledger is handled on its own
 # (`_ingest_csv_files`), since one file becomes many one-line documents, not one.
 _READ_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 _CSV_EXTENSION = ".csv"

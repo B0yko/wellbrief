@@ -2,7 +2,7 @@
 
 The last tests ask every question of the extended evaluation suite on the
 default corpus and check the quotes of every answer: none is a header or
-`Label : value` line (the prototype quoted `Hole section : 17 1/2"` six times in
+`Label : value` line (an earlier version quoted `Hole section : 17 1/2"` six times in
 one answer), none is the footer, each is verbatim, and each comes from the
 passage the rule names for its document type.
 """

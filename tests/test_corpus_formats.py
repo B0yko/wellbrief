@@ -2,7 +2,7 @@
 (`corpus generate --formats txt|mixed|pdf|docx [--ledger-csv]`).
 
 `test_corpus_invariants.py` covers the `txt` rendering and the truth sidecar; this file covers
-the writers this phase adds on top of it: manifest-hash determinism for every format, that the
+the writers added on top of it: manifest-hash determinism for every format, that the
 real generated documents (not just the writers' own hand-picked samples in `test_pdfwriter.py`)
 round-trip through `pypdf` with their spaces intact, and the ledger CSV against the truth.
 """

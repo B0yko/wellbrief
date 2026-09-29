@@ -6,9 +6,9 @@ A workspace is one self-contained set of ingested data and its indexes:
     $WELLBRIEF_HOME/<name>/fields/<slug>/bm25.json       BM25 postings over the field's chunks
     $WELLBRIEF_HOME/<name>/fields/<slug>/vectors.f32     hashing vectors over the same chunks
     $WELLBRIEF_HOME/<name>/fields/<slug>/manifest.json   document/chunk counts, corpus hash, embedder
-    $WELLBRIEF_HOME/<name>/audit.jsonl                   one line per `ask` / `brief` (a later phase)
-    $WELLBRIEF_HOME/<name>/egress.jsonl                  one line per outbound LLM call (a later phase)
-    $WELLBRIEF_HOME/<name>/wellbrief.toml                optional site configuration (a later phase)
+    $WELLBRIEF_HOME/<name>/audit.jsonl                   one line per `ask` / `brief`
+    $WELLBRIEF_HOME/<name>/egress.jsonl                  one line per outbound LLM call
+    $WELLBRIEF_HOME/<name>/wellbrief.toml                optional site configuration
 
 `$WELLBRIEF_HOME` defaults to `~/.wellbrief` and is overridden by the
 environment variable of the same name; the workspace name defaults to
