@@ -705,3 +705,5 @@ configuration decisions.
 ## Licence
 
 Apache-2.0. Copyright 2026 Andrii Boiko. See [LICENSE](LICENSE).
+
+Built by [Andrii Boiko](https://boiko.ai/) · [LinkedIn](https://www.linkedin.com/in/andriyboyko/) · [Project overview](https://boiko.ai/work/wellbrief/).
