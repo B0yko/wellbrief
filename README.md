@@ -1,12 +1,11 @@
+<p align="center">
+  <img src=".github/social-preview.png" alt="wellbrief: answers from your well files, quoted word for word" width="880">
+</p>
+
 # wellbrief
 
 Offline retrieval-augmented answers and pre-spud offset-well risk briefs over a field's own
 drilling reports, with no network access required at any point.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.svg">
-  <img alt="wellbrief overview: well files on the left, the offline wellbrief engine in the centre, a cited answer and a pre-spud risk brief on the right" src="docs/images/hero-light.svg">
-</picture>
 
 [![CI](https://github.com/B0yko/wellbrief/actions/workflows/ci.yml/badge.svg)](https://github.com/B0yko/wellbrief/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
